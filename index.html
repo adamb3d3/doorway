@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Doorway">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="manifest" href="/manifest.json">
+<title>The Doorway — ER Gestalt Trainer</title>
+<style>
+  *{box-sizing:border-box} html,body{margin:0;padding:0;background:#0a0a0a;color:#f5f1e8;font-family:'Source Serif 4',Georgia,serif;-webkit-tap-highlight-color:transparent}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,textarea{font-family:inherit}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @keyframes ping{75%,100%{transform:scale(2);opacity:0}}
+  .scrollx::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const {useState, useEffect, useRef} = React;
+const MONO = "'JetBrains Mono',ui-monospace,monospace";
+const SERIF = "'Source Serif 4',Georgia,serif";
+const C = {bg:"#0a0a0a",bg2:"#141414",text:"#f5f1e8",dim:"rgba(245,241,232,0.65)",faint:"rgba(245,241,232,0.35)",border:"rgba(245,241,232,0.12)",red:"#8B0000"};
+
+// === API ===
+const callAPI = async (model, system, user, maxTokens=1800) => {
+  const userKey = localStorage.getItem("doorway_api_key");
+  const headers = {"content-type":"application/json"};
+  if (userKey) headers["x-user-api-key"] = userKey;
+  const r = await fetch("/api/claude",{method:"POST",headers,body:JSON.stringify({model,max_tokens:maxTokens,system,messages:[{role:"user",content:user}]})});
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error||`API ${r.status}`);
+  const text = (d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n");
+  let c = text.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const f=c.indexOf("{"),l=c.lastIndexOf("}");
+  if(f!==-1&&l>f) c=c.slice(f,l+1);
+  try{return JSON.parse(c)}catch(e){console.error("Raw:",text);throw new Error("Model returned bad JSON")}
+};
+const HAIKU="claude-haiku-4-5";
+const SONNET="claude-sonnet-4-20250514";
+
+// === LANDING ===
+const Landing = ({onEnter}) => {
+  const [m,setM] = useState(false);
+  useEffect(()=>{setM(true)},[]);
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:SERIF}}>
+      <div style={{position:"sticky",top:0,zIndex:30,height:36,background:"#000",borderBottom:`1px solid ${C.red}40`,display:"flex",alignItems:"center",padding:"0 16px",gap:20,fontFamily:MONO,fontSize:10}}>
+        <span style={{color:C.red,display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:C.red,animation:"pulse 2s infinite"}}/>LIVE</span>
+        <span style={{color:C.dim}}>HR <span style={{color:C.text}}>72</span></span>
+        <span style={{color:C.dim}}>BP <span style={{color:C.text}}>118/76</span></span>
+        <span style={{color:C.dim}}>SpO₂ <span style={{color:C.text}}>98</span></span>
+        <span style={{marginLeft:"auto",color:C.faint}}>0412.2026</span>
+      </div>
+      <section style={{padding:"80px 24px 100px"}}>
+        <div style={{opacity:m?1:0,transform:m?"none":"translateY(12px)",transition:"all 900ms"}}>
+          <div style={{fontFamily:MONO,fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:C.red,marginBottom:32}}>An ER Gestalt Trainer</div>
+          <h1 style={{fontSize:"clamp(68px,17vw,112px)",lineHeight:0.85,fontWeight:700,letterSpacing:"-0.035em",margin:0}}>The<br/><span style={{fontStyle:"italic",fontWeight:400}}>Doorway.</span></h1>
+          <div style={{height:1,width:64,background:C.red,margin:"32px 0"}}/>
+          <p style={{fontSize:18,lineHeight:1.5,color:C.dim,maxWidth:460,margin:0}}>Every ER doctor develops a sixth sense — the read from the hallway, the hunch before the labs come back.</p>
+          <p style={{fontSize:18,lineHeight:1.5,maxWidth:460,marginTop:16}}>It's called clinical gestalt, and it's the hardest thing in medicine to teach.</p>
+          <p style={{fontSize:18,lineHeight:1.5,fontStyle:"italic",maxWidth:460,marginTop:20}}>This is the place you practice it.</p>
+        </div>
+        <button onClick={onEnter} style={{marginTop:56,display:"inline-flex",alignItems:"center",gap:12,padding:"18px 32px",background:C.text,color:C.bg,fontFamily:MONO,fontSize:13,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+          <span style={{width:8,height:8,background:C.red,borderRadius:"50%"}}/>Walk through the doorway<span>→</span>
+        </button>
+        <div style={{marginTop:14,fontFamily:MONO,fontSize:10,color:C.faint}}>No signup. A patient is waiting.</div>
+      </section>
+      <section style={{padding:"64px 24px",borderTop:`1px solid ${C.border}`}}>
+        <div style={{fontFamily:MONO,fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:C.red,marginBottom:48}}>How it works</div>
+        {[["01","A patient arrives.","Chief complaint. Vitals. How they look. Two seconds to form your read."],["02","You work the problem.","Ask history. Examine. Order labs. The patient answers in character."],["03","You commit. Then you learn.","Differential ranked. Disposition. A senior attending grades you against the hidden truth."]].map(([n,t,b])=>(
+          <div key={n} style={{display:"flex",gap:20,marginBottom:48}}>
+            <div style={{flexShrink:0,fontSize:36,fontFamily:MONO,fontWeight:700,color:`${C.red}b0`}}>{n}</div>
+            <div><h3 style={{fontSize:22,fontWeight:600,margin:"0 0 8px"}}>{t}</h3><p style={{fontSize:14,color:C.dim,margin:0,lineHeight:1.55}}>{b}</p></div>
+          </div>
+        ))}
+      </section>
+      <section style={{padding:"72px 24px",borderTop:`1px solid ${C.border}`,background:C.bg2}}>
+        <div style={{fontFamily:MONO,fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:C.red,marginBottom:24}}>Why this exists</div>
+        <blockquote style={{fontSize:24,lineHeight:1.3,fontWeight:300,fontStyle:"italic",margin:0}}>"Rural ER docs are the last generalists in medicine. They see the farmer with an unusual rash, the elderly fall on warfarin, and the subtle dissection — all in one shift, often alone, often at 3 AM."</blockquote>
+        <div style={{height:1,width:40,background:C.red,margin:"24px 0"}}/>
+        <p style={{fontSize:14,color:C.dim,lineHeight:1.65}}>No commercial simulator trains the gestalt itself. None weights cases toward what you actually miss. None lives on your phone for ninety seconds between patients.</p>
+        <p style={{fontSize:14,lineHeight:1.65,fontWeight:600,marginTop:12}}>This one does.</p>
+      </section>
+      <section style={{padding:"80px 24px",borderTop:`1px solid ${C.border}`,textAlign:"center"}}>
+        <p style={{fontSize:34,lineHeight:1.1,fontWeight:700,letterSpacing:"-0.025em",maxWidth:360,margin:"0 auto 32px"}}>What's coming<br/>through the <span style={{fontStyle:"italic",fontWeight:400,color:C.red}}>door</span>?</p>
+        <button onClick={onEnter} style={{display:"inline-flex",alignItems:"center",gap:12,padding:"20px 40px",background:C.red,color:C.text,fontFamily:MONO,fontSize:13,letterSpacing:"0.12em",textTransform:"uppercase",boxShadow:`0 20px 50px -20px ${C.red}cc`}}>Accept your first patient<span>→</span></button>
+        <div style={{marginTop:48,fontFamily:MONO,fontSize:9,color:C.faint,letterSpacing:"0.2em",textTransform:"uppercase"}}>By Ted Delicath · Open source · MIT</div>
+      </section>
+    </div>
+  );
+};
+
+// === AVATAR ===
+const FITZ=["#f5dcc4","#e8c5a3","#d4a373","#b07d5a","#8a5a3c","#4a2c1a"];
+const Avatar = ({phys}) => {
+  if (!phys) return null;
+  const {fitz=3,hair="#3a2820",rrRate=16,pallor=0,diaphoresis=0,cyanosis=0,jaundice=0,guarding=0,eyeState="open",positioning="supine",distressLevel=0,age=40,habitus="average"} = phys;
+  const base = FITZ[Math.max(0,Math.min(5,fitz-1))];
+  const sk = pallor>0?`color-mix(in srgb,${base},#c8c5c0 ${pallor*20}%)`:base;
+  const sclera = jaundice>0?`rgb(${255-jaundice*10},${245-jaundice*15},${200-jaundice*40})`:"#f5f0e8";
+  const lip = cyanosis>0?`rgb(${120-cyanosis*20},${90-cyanosis*10},${130+cyanosis*15})`:"#8a3838";
+  const breath = `${(60/Math.max(8,rrRate)).toFixed(2)}s`;
+  const tilt = positioning==="tripod"?-8:positioning==="fetal"?5:0;
+  const ey = eyeState==="closed"?0.5:eyeState==="half"?1.5:3;
+  const hColor = age>65?"#9a9288":age>55?"#5a4a3d":hair;
+  const shExt = habitus==="cachectic"?48:habitus==="obese"?68:55;
+  const nkW = habitus==="cachectic"?22:habitus==="obese"?42:30;
+  return (
+    <svg viewBox="0 0 240 280" style={{width:"100%",height:"100%"}}>
+      <defs><radialGradient id="bg" cx="50%" cy="35%"><stop offset="0%" stopColor="#1e2a3d"/><stop offset="100%" stopColor="#070b14"/></radialGradient></defs>
+      <rect width="240" height="280" fill="url(#bg)"/>
+      <rect x="0" y="240" width="240" height="40" fill="#0f1826"/>
+      <g transform={`translate(120,150) rotate(${tilt})`}>
+        <path d={`M ${-shExt} 70 Q ${-shExt} 10 -30 -5 L 30 -5 Q ${shExt} 10 ${shExt} 70 Z`} fill={distressLevel>2?"#2a3246":"#3a4556"}>
+          <animateTransform attributeName="transform" type="scale" values="1 1;1 1.04;1 1" dur={breath} repeatCount="indefinite"/>
+        </path>
+        <g transform={`translate(${-40+guarding*5},20) rotate(${guarding*15})`}><rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/></g>
+        <g transform={`translate(${40-guarding*5},20) rotate(${-guarding*15})`}><rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/></g>
+        <rect x={-nkW/2} y="-35" width={nkW} height="35" fill={sk}/>
+        <g transform="translate(0,-75)">
+          <ellipse cx="0" cy="0" rx="42" ry="52" fill={sk}/>
+          <path d="M -42 -5 Q -45 -55 0 -58 Q 45 -55 42 -5 Q 38 -30 0 -35 Q -38 -30 -42 -5" fill={hColor}/>
+          <ellipse cx="-15" cy="5" rx="7" ry={ey+1} fill={sclera}/><ellipse cx="15" cy="5" rx="7" ry={ey+1} fill={sclera}/>
+          <ellipse cx="-15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/><ellipse cx="15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/>
+          <path d={distressLevel>2?"M -12 28 Q 0 22 12 28":"M -10 26 Q 0 30 10 26"} stroke={lip} strokeWidth="2.5" fill="none"/>
+          {diaphoresis>0 && [...Array(Math.round(diaphoresis*4))].map((_,i)=><circle key={i} cx={-30+i*12} cy={-25+(i%2)*8} r="1.8" fill="#a8d5ff" opacity="0.9"/>)}
+        </g>
+      </g>
+    </svg>
+  );
+};
+
+const MENU = `Sample from high-yield rural-ED teaching cases (weighted for MISSES): TIER 1 MOST-MISSED (40%): aortic dissection as MI, SAH as resolved headache, meningitis as flu, early septic shock with normal BP, mesenteric ischemia, cauda equina, PE dismissed as anxiety, torsion as abd pain, ectopic, nec fasc, temporal arteritis. TIER 2 COMMON (40%): atypical STEMI in women/diabetics, LVO stroke, DKA, GI bleed, CHF vs PE vs PNA, anaphylaxis, appy, chole, sepsis in elderly. TIER 3 RURAL (20%): farm/ag trauma, snakebite, hypothermia, meth/opioid OD, tick-borne, fall on anticoag. Include rural twist (transfer, no cath/CT after hours, delayed presentation). Vary ethnicity proportional to rural America with meaningful non-white representation.`;
+
+const CHIPS = {History:["When did this start?","Describe pain","Associated symptoms?","PMH?","Medications?","Allergies?","Social history?"],Exam:["General appearance","Auscultate lungs","Auscultate heart","Palpate abdomen","Extremities","Neuro exam","HEENT"],Labs:["CBC+BMP","Troponin","Lactate","D-dimer","VBG","Coags","UA","Cultures"],Imaging:["ECG","CXR","CT head","CT chest PE","CT abd","Bedside US"],Meds:["ASA 325","Nitro SL","Morphine","Zofran","IV fluids","Antibiotics","Narcan"],Procs:["IV","Foley","LP","Intubate","Chest tube"]};
+const DISPOS = ["Discharge","Obs","Admit","ICU","Transfer","OR"];
+
+// === TRAINER ===
+const Trainer = ({onHome}) => {
+  const [view,setView]=useState("loading");
+  const [patient,setPatient]=useState(null);
+  const [nextCache,setNextCache]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [log,setLog]=useState([]);
+  const [input,setInput]=useState("");
+  const [gestalt,setGestalt]=useState(null);
+  const [acuity,setAcuity]=useState(3);
+  const [showCommit,setShowCommit]=useState(false);
+  const [ddx,setDdx]=useState("");
+  const [finalDispo,setFinalDispo]=useState("");
+  const [score,setScore]=useState(null);
+  const [displayScore,setDisplayScore]=useState(0);
+  const [openCat,setOpenCat]=useState(null);
+  const [timer,setTimer]=useState(0);
+  const [listening,setListening]=useState(false);
+  const [stats,setStats]=useState(()=>{try{return JSON.parse(localStorage.getItem("doorway_stats"))||{cases:0,avg:0,streak:0,last:null,history:[]}}catch{return{cases:0,avg:0,streak:0,last:null,history:[]}}});
+  const logEnd=useRef(null);
+  const recog=useRef(null);
+
+  const haptic=(ms)=>{try{navigator.vibrate?.(ms)}catch{}};
+  useEffect(()=>{logEnd.current?.scrollIntoView({behavior:"smooth"})},[log]);
+  useEffect(()=>{if(view==="case"&&!score){const i=setInterval(()=>setTimer(t=>t+1),1000);return()=>clearInterval(i)}},[view,score]);
+  useEffect(()=>{newCase()},[]);
+
+  const genCase = async ()=>{
+    return await callAPI(HAIKU,"ER case generator. Return ONLY JSON.",`${MENU}
+Return JSON: {"name":"","age":n,"sex":"M|F","ethnicity":"","occupation":"","chiefComplaint":"","arrivalMode":"","emsHandoff":null,"vitals":{"HR":n,"BP":"s/d","RR":n,"SpO2":n,"Temp":"F","GCS":n},"doorwayImpression":"2 sentences","physicality":{"fitz":1-6,"hair":"#hex","rrRate":n,"pallor":0-3,"diaphoresis":0-3,"cyanosis":0-3,"jaundice":0-3,"guarding":0-3,"eyeState":"open|half|closed","positioning":"supine|tripod|fetal|sitting","distressLevel":0-4,"age":n,"habitus":"cachectic|average|obese"},"patientPersona":"","_hidden":{"trueDiagnosis":"","mustNotMiss":["..."],"idealWorkup":["..."],"trueAcuity":1-5,"trueDispo":"Discharge|Obs|Admit|ICU|Transfer|OR","teachingPoint":"","teachingLong":"","ruralTwist":"","complaintCategory":""}}`,2200);
+  };
+
+  const newCase = async ()=>{
+    setLoading(true);setError(null);setLog([]);setShowCommit(false);setScore(null);
+    setDdx("");setFinalDispo("");setGestalt(null);setAcuity(3);setOpenCat(null);setTimer(0);
+    try{
+      const p = nextCache || await genCase();
+      setNextCache(null);
+      setPatient(p);setView("case");
+      setLog([{k:"obs",t:p.doorwayImpression}]);
+      haptic(20);
+    }catch(e){setError(e.message);setView("case")}
+    setLoading(false);
+  };
+
+  useEffect(()=>{
+    if(!score)return;
+    haptic([40,60,120]);
+    const start=performance.now(),target=score.score;
+    const tick=(now)=>{const t=Math.min(1,(now-start)/1200);setDisplayScore(Math.round(target*(1-Math.pow(1-t,3))));if(t<1)requestAnimationFrame(tick)};
+    requestAnimationFrame(tick);
+    genCase().then(setNextCache).catch(()=>{});
+  },[score]);
+
+  const send = async (text)=>{
+    if(!text.trim()||!patient)return;
+    setOpenCat(null);setInput("");
+    const next=[...log,{k:"doc",t:text}];
+    setLog(next);setLoading(true);haptic(10);
+    try{
+      const r = await callAPI(HAIKU,`Live ER encounter. PATIENT voice for history (persona: ${patient.patientPersona}). CLINICAL voice for exam/labs/imaging/med results. Hidden: ${JSON.stringify(patient._hidden)}. Vitals: ${JSON.stringify(patient.vitals)}. Return JSON: {"kind":"patient|clinical","text":"1-3 sentences","delta":null or {field:val},"obs":null or "visible change"}`,`Doc: "${text}"\nRecent: ${JSON.stringify(log.slice(-6))}`,700);
+      const k = r.kind==="patient"?"patient":"clinical";
+      const u=[...next,{k,t:r.text||"[...]"}];
+      if(r.obs)u.push({k:"obs",t:r.obs});
+      setLog(u);
+      if(r.delta)setPatient(p=>({...p,physicality:{...p.physicality,...r.delta}}));
+    }catch(e){setLog([...next,{k:"clinical",t:"[error: "+e.message+"]"}])}
+    setLoading(false);
+  };
+
+  const commit = async ()=>{
+    if(!ddx||!finalDispo)return;
+    setLoading(true);haptic(30);
+    try{
+      const r = await callAPI(SONNET,"Senior EM attending grading a rural ER doc. Return ONLY JSON.",
+`Hidden: ${JSON.stringify(patient._hidden)}
+Gut dispo: ${gestalt} (true: ${patient._hidden.trueDispo}) · Acuity: ${acuity} (true: ${patient._hidden.trueAcuity}) · Time: ${timer}s
+Actions: ${JSON.stringify(log.filter(l=>l.k==="doc").map(l=>l.t))}
+DDx: ${ddx} · Dispo: ${finalDispo}
+Return: {"score":0-100,"caughtInDdx":bool,"missedCantMiss":["..."],"gestaltCal":"spot-on|close|over|under","workup":"lean|appropriate|shotgun|insufficient","dispoOk":bool,"wins":["..."],"misses":["..."],"teaching":"","teachingLong":"","ruralLesson":"","trueDx":"","rule":"or null"}`,1300);
+      setScore(r);setView("score");
+      const today=new Date().toDateString();
+      const yday=new Date(Date.now()-86400000).toDateString();
+      const streak = stats.last===today?stats.streak:(stats.last===yday?stats.streak+1:1);
+      const entry={date:Date.now(),dx:r.trueDx,caught:r.caughtInDdx,gestalt,acuity,actualAcuity:patient._hidden.trueAcuity,score:r.score};
+      const ns={cases:stats.cases+1,avg:Math.round(((stats.avg*stats.cases)+r.score)/(stats.cases+1)),streak,last:today,history:[...(stats.history||[]),entry].slice(-100)};
+      setStats(ns);localStorage.setItem("doorway_stats",JSON.stringify(ns));
+    }catch(e){setError("Grading failed: "+e.message)}
+    setLoading(false);
+  };
+
+  const voice = ()=>{
+    if(listening){recog.current?.stop();return}
+    const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){setError("Voice not supported here");return}
+    const r = new SR();r.lang="en-US";r.interimResults=false;
+    r.onresult=(e)=>{const t=e.results[0][0].transcript;setListening(false);send(t)};
+    r.onerror=()=>setListening(false);r.onend=()=>setListening(false);
+    r.start();recog.current=r;setListening(true);haptic(15);
+  };
+
+  const v = patient?.vitals;
+  const flag=(k,x)=>k==="HR"?(x<60||x>100):k==="RR"?(x<12||x>20):k==="SpO2"?x<94:k==="GCS"?x<15:false;
+  const fmt=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  const bubble={doc:{background:"rgba(5,95,70,0.5)",color:"#d1fae5",marginLeft:"auto"},patient:{background:"rgba(68,32,8,0.5)",color:"#fde68a",borderLeft:"2px solid #d97706"},clinical:{background:"rgba(30,41,59,0.7)",color:"#f1f5f9"},obs:{background:"rgba(49,46,129,0.5)",color:"#c7d2fe",fontStyle:"italic",borderLeft:"2px solid #6366f1"}};
+  const labels={doc:"You",patient:patient?.name?.split(" ")[0]||"Pt",clinical:"Clinical",obs:"You see"};
+
+  if(view==="score"&&score){
+    return (
+      <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"system-ui,sans-serif",display:"flex",flexDirection:"column",padding:16}}>
+        <div style={{textAlign:"center",margin:"24px 0 16px"}}>
+          <div style={{fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:C.faint,fontFamily:MONO}}>Score</div>
+          <div style={{fontSize:72,fontFamily:MONO,fontWeight:700,color:"#10b981"}}>{displayScore}</div>
+          <div style={{fontSize:12,color:C.dim,marginTop:4}}>True: <span style={{color:"#fbbf24"}}>{score.trueDx}</span></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          {[["Caught",score.caughtInDdx,score.caughtInDdx?"✓":"✗"],["Dispo",score.dispoOk,score.dispoOk?"✓":"✗"],["Gestalt",["spot-on","close"].includes(score.gestaltCal),score.gestaltCal],["Workup",["lean","appropriate"].includes(score.workup),score.workup]].map(([k,g,val])=>(
+            <div key={k} style={{padding:8,borderRadius:4,border:`1px solid ${g?"#065f46":"#7f1d1d"}`,background:g?"rgba(6,78,59,0.3)":"rgba(127,29,29,0.3)"}}>
+              <div style={{fontSize:9,textTransform:"uppercase",color:C.dim}}>{k}</div><div style={{fontSize:13}}>{val}</div>
+            </div>
+          ))}
+        </div>
+        {score.missedCantMiss?.length>0 && <div style={{padding:8,background:"rgba(127,29,29,0.3)",border:"1px solid #7f1d1d",borderRadius:4,marginBottom:8,fontSize:12}}><span style={{color:"#f87171",fontWeight:600}}>⚠ Missed: </span>{score.missedCantMiss.join(", ")}</div>}
+        {score.wins?.map((w,i)=><div key={i} style={{padding:6,background:"rgba(6,78,59,0.3)",borderLeft:"2px solid #10b981",fontSize:12,marginBottom:4}}>✓ {w}</div>)}
+        {score.misses?.map((w,i)=><div key={i} style={{padding:6,background:"rgba(127,29,29,0.2)",borderLeft:"2px solid #ef4444",fontSize:12,marginBottom:4}}>✗ {w}</div>)}
+        <div style={{marginTop:12,padding:10,background:"rgba(68,32,8,0.3)",borderLeft:"2px solid #d97706",borderRadius:4,fontSize:12,fontStyle:"italic"}}>{score.teaching}{score.teachingLong&&<div style={{marginTop:8,fontStyle:"normal",color:C.dim,fontSize:11}}>{score.teachingLong}</div>}</div>
+        <div style={{marginTop:8,fontSize:11,color:C.dim}}>Rural: {score.ruralLesson}</div>
+        <div style={{marginTop:"auto",paddingTop:16,display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={newCase} style={{padding:16,background:"#065f46",color:C.text,borderRadius:12,fontSize:15,fontWeight:600,boxShadow:"0 10px 30px -10px rgba(6,78,59,0.8)"}}>{nextCache?"Next Patient →":"Next Patient (loading) →"}</button>
+          <button onClick={onHome} style={{padding:8,border:`1px solid ${C.border}`,background:"transparent",color:C.dim,borderRadius:8,fontSize:12}}>Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"system-ui,sans-serif",display:"flex",flexDirection:"column"}}>
+      <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"rgba(10,10,10,0.95)",backdropFilter:"blur(8px)",zIndex:20}}>
+        <button onClick={onHome} style={{background:"none",color:C.dim,fontSize:12}}>← Home</button>
+        <div style={{fontSize:12,fontFamily:MONO,color:C.dim}}>{fmt(timer)}</div>
+      </header>
+      <div style={{height:3,background:C.bg2}}><div style={{height:"100%",background:C.red,width:`${Math.min(100,timer/4.8)}%`,transition:"width 1s"}}/></div>
+      {error&&<div style={{margin:8,padding:8,background:"rgba(127,29,29,0.6)",border:"1px solid #b91c1c",borderRadius:4,fontSize:11}}>{error} <button onClick={()=>setError(null)} style={{background:"none",color:C.text,textDecoration:"underline",marginLeft:8}}>×</button></div>}
+      {loading&&!patient&&<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:C.dim,fontStyle:"italic"}}>Triaging...</div>}
+      {patient&&<>
+        <div style={{padding:"8px 12px 0"}}>
+          <div style={{display:"flex",gap:12}}>
+            <div style={{width:88,aspectRatio:"6/7",borderRadius:4,border:`1px solid ${C.border}`,overflow:"hidden",flexShrink:0}}><Avatar phys={patient.physicality}/></div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{patient.name}</div>
+              <div style={{fontSize:10,color:C.dim}}>{patient.age}{patient.sex} · {patient.ethnicity||"—"} · {patient.occupation}</div>
+              <div style={{fontSize:9,color:C.faint}}>{patient.arrivalMode}</div>
+              <div style={{marginTop:4,padding:6,background:"rgba(68,32,8,0.3)",borderLeft:"2px solid #d97706",fontSize:12}}><div style={{fontSize:8,textTransform:"uppercase",color:"#d97706"}}>CC</div>{patient.chiefComplaint}</div>
+              {patient.emsHandoff&&<div style={{marginTop:4,fontSize:10,fontStyle:"italic",color:C.dim}}>EMS: "{patient.emsHandoff}"</div>}
+            </div>
+          </div>
+          <div style={{marginTop:8,display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
+            {[["HR",v.HR,"HR"],["BP",v.BP,"BP"],["RR",v.RR,"RR"],["SpO₂",v.SpO2+"%","SpO2"],["T",v.Temp,"T"],["GCS",v.GCS,"GCS"]].map(([k,val,fk])=>{
+              const bad=flag(fk,typeof val==="string"?parseInt(val):val);
+              return <div key={k} style={{padding:"4px 2px",borderRadius:4,border:`1px solid ${bad?"#7f1d1d":C.border}`,background:bad?"rgba(127,29,29,0.3)":"rgba(30,41,59,0.4)",textAlign:"center"}}><div style={{fontSize:8,textTransform:"uppercase",opacity:0.6}}>{k}</div><div style={{fontSize:11,fontFamily:MONO}}>{val}</div></div>;
+            })}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 12px",display:"flex",flexDirection:"column",gap:6,minHeight:0}}>
+          {log.map((m,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:m.k==="doc"?"flex-end":"flex-start"}}>
+              <div style={{maxWidth:"85%",padding:"6px 10px",borderRadius:4,...bubble[m.k]}}>
+                <div style={{fontSize:8,textTransform:"uppercase",opacity:0.6,letterSpacing:"0.1em"}}>{labels[m.k]}</div>
+                <div style={{fontSize:13,lineHeight:1.4}}>{m.t}</div>
+              </div>
+            </div>
+          ))}
+          {loading&&<div style={{color:C.faint,fontSize:11,fontStyle:"italic"}}>...</div>}
+          <div ref={logEnd}/>
+        </div>
+        <div style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+          {openCat&&<div className="scrollx" style={{padding:"6px 8px 2px",display:"flex",gap:6,overflowX:"auto"}}>
+            {CHIPS[openCat].map(a=><button key={a} onClick={()=>send(a)} style={{flexShrink:0,padding:"6px 10px",background:"#1e293b",color:C.text,borderRadius:999,fontSize:11,whiteSpace:"nowrap"}}>{a}</button>)}
+          </div>}
+          <div className="scrollx" style={{padding:"6px 8px 0",display:"flex",gap:6,overflowX:"auto"}}>
+            {Object.keys(CHIPS).map(cat=><button key={cat} onClick={()=>{setOpenCat(openCat===cat?null:cat);haptic(8)}} style={{flexShrink:0,padding:"4px 12px",background:openCat===cat?"#065f46":"#1e293b",color:C.text,borderRadius:999,fontSize:11,fontWeight:500}}>{cat}</button>)}
+          </div>
+          {!showCommit?(
+            <div style={{padding:8,display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={voice} style={{padding:"0 12px",borderRadius:8,background:listening?"#b91c1c":"#1e293b",color:C.text,fontSize:18}}>🎤</button>
+                <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send(input)} style={{flex:1,background:"#1e293b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.text}} placeholder="tap, type, or speak..."/>
+                <button onClick={()=>send(input)} disabled={loading||!input.trim()} style={{padding:"0 14px",background:"#065f46",color:C.text,borderRadius:8,fontSize:13,opacity:loading||!input.trim()?0.4:1}}>→</button>
+              </div>
+              <div style={{padding:8,background:"rgba(30,41,59,0.5)",border:`1px solid ${C.border}`,borderRadius:8,display:"flex",flexDirection:"column",gap:8}}>
+                <div>
+                  <div style={{fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:4}}>Gut dispo</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
+                    {DISPOS.map(d=><button key={d} onClick={()=>{setGestalt(d);haptic(10)}} style={{padding:"6px 2px",borderRadius:4,background:gestalt===d?"#065f46":"#1e293b",color:gestalt===d?C.text:C.dim,fontSize:9,lineHeight:1.2}}>{d}</button>)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:4}}><span>Acuity</span><span>{["","well","minor","concerning","sick","crashing"][acuity]}</span></div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+                    {[1,2,3,4,5].map(n=><button key={n} onClick={()=>{setAcuity(n);haptic(10)}} style={{padding:"8px 0",borderRadius:4,background:acuity===n?"#b45309":"#1e293b",color:acuity===n?C.text:C.dim,fontFamily:MONO,fontSize:13}}>{n}</button>)}
+                  </div>
+                </div>
+              </div>
+              <button onClick={()=>setShowCommit(true)} disabled={!gestalt} style={{padding:10,border:"1px solid #b45309",color:gestalt?"#fbbf24":C.faint,background:"transparent",borderRadius:8,fontSize:13,opacity:gestalt?1:0.3}}>{gestalt?"Ready to commit →":"Set gut dispo first"}</button>
+            </div>
+          ):(
+            <div style={{padding:8,display:"flex",flexDirection:"column",gap:8}}>
+              <input value={ddx} onChange={e=>setDdx(e.target.value)} placeholder="DDx: 1... 2... 3..." style={{background:"#1e293b",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.text}}/>
+              <div>
+                <div style={{fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:4}}>Final dispo</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+                  {DISPOS.map(d=><button key={d} onClick={()=>{setFinalDispo(d);haptic(10)}} style={{padding:"8px 4px",borderRadius:4,background:finalDispo===d?"#065f46":"#1e293b",color:finalDispo===d?C.text:C.dim,fontSize:11}}>{d}</button>)}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowCommit(false)} style={{padding:"8px 12px",border:`1px solid ${C.border}`,background:"transparent",color:C.text,borderRadius:8,fontSize:11}}>← Back</button>
+                <button onClick={commit} disabled={loading||!ddx||!finalDispo} style={{flex:1,padding:10,background:"#b45309",color:C.text,borderRadius:8,fontSize:13,opacity:(loading||!ddx||!finalDispo)?0.4:1}}>{loading?"Grading...":"Submit & Grade"}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </>}
+    </div>
+  );
+};
+
+// === APP ===
+const App = () => {
+  const [view,setView] = useState(()=>localStorage.getItem("doorway_entered")?"trainer":"landing");
+  const enter = ()=>{localStorage.setItem("doorway_entered","1");setView("trainer")};
+  const home = ()=>setView("landing");
+  if(view==="landing") return <Landing onEnter={enter}/>;
+  return <Trainer onHome={home}/>;
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

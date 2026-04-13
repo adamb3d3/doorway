@@ -1,0 +1,13 @@
+{
+  "name": "The Doorway",
+  "short_name": "Doorway",
+  "description": "An ER gestalt trainer for rural emergency physicians",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "orientation": "portrait",
+  "icons": [
+    {"src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230a0a0a'/%3E%3Ctext x='256' y='340' font-family='Georgia,serif' font-size='360' font-weight='700' fill='%23f5f1e8' text-anchor='middle'%3ED%3C/text%3E%3Ccircle cx='400' cy='160' r='30' fill='%238B0000'/%3E%3C/svg%3E", "sizes": "512x512", "type": "image/svg+xml"}
+  ]
+}
