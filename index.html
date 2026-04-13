@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Doorway">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='10' fill='%230a0a0a'/><rect x='20' y='14' width='24' height='40' rx='1' fill='none' stroke='%238B0000' stroke-width='3'/><circle cx='39' cy='34' r='2' fill='%238B0000'/><rect x='14' y='52' width='36' height='2' fill='%23f5f1e8' opacity='0.4'/></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%230a0a0a'/><rect x='56' y='40' width='68' height='112' rx='2' fill='none' stroke='%238B0000' stroke-width='8'/><circle cx='110' cy='96' r='5' fill='%238B0000'/><rect x='40' y='146' width='100' height='4' fill='%23f5f1e8' opacity='0.4'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,300;1,8..60,400;1,8..60,600&family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<title>The Doorway — ER Gestalt Trainer</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#0a0a0a;color:#f5f1e8;font-family:'Source Serif 4',Georgia,serif;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0;transition:all 200ms cubic-bezier(0.2,0.8,0.2,1)}
+  input,textarea{font-family:inherit}
+  .scrollx::-webkit-scrollbar{display:none}
+  .scrollx{scrollbar-width:none}
+  .display{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+  @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes vital-pulse{0%,100%{opacity:1;box-shadow:inset 0 0 0 1px rgba(239,68,68,0.4)}50%{opacity:.85;box-shadow:inset 0 0 0 1px rgba(239,68,68,0.85),0 0 12px rgba(239,68,68,0.25)}}
+  @keyframes score-glow{0%,100%{text-shadow:0 0 0px rgba(139,0,0,0)}50%{text-shadow:0 0 28px rgba(165,28,28,0.55),0 0 4px rgba(245,241,232,0.2)}}
+  @keyframes ekg-sweep{0%{stroke-dashoffset:2400}100%{stroke-dashoffset:0}}
+  @keyframes hr-flicker{0%,40%,100%{opacity:1}45%,55%{opacity:.55}}
+  @keyframes fade-up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @keyframes bubble-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @keyframes case-fade{from{opacity:0}to{opacity:1}}
+  .fade-up{animation:fade-up 800ms cubic-bezier(0.2,0.8,0.2,1) both}
+  .bubble{animation:bubble-in 380ms cubic-bezier(0.2,0.8,0.2,1) both}
+  .case-fade{animation:case-fade 600ms cubic-bezier(0.2,0.8,0.2,1) both}
+  .vital-bad{animation:vital-pulse 1.5s cubic-bezier(0.2,0.8,0.2,1) infinite}
+  .chip:hover{background:#1f1f1f}
+  .chip:active{transform:scale(0.97)}
+  .btn-primary:hover{background:#a51c1c}
+  .btn-ghost:hover{background:rgba(245,241,232,0.04)}
+  .score-glow{animation:score-glow 2.4s ease-in-out 1}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const {useState, useEffect, useRef, useMemo} = React;
+const MONO = "'JetBrains Mono',ui-monospace,monospace";
+const SERIF = "'Source Serif 4',Georgia,serif";
+const DISPLAY = "'Instrument Serif',Georgia,serif";
+const EASE = "cubic-bezier(0.2,0.8,0.2,1)";
+const C = {
+  bg:"#0a0a0a", bg2:"#141414", bg3:"#1a1a1a",
+  text:"#f5f1e8", dim:"rgba(245,241,232,0.65)", faint:"rgba(245,241,232,0.35)",
+  border:"rgba(245,241,232,0.12)", borderStrong:"rgba(245,241,232,0.22)",
+  red:"#8B0000", redBright:"#a51c1c", redDim:"rgba(139,0,0,0.4)",
+  amber:"#d4a04a", amberBg:"rgba(180,120,40,0.10)", amberBorder:"rgba(212,160,74,0.45)",
+  slate:"#7a8599", slateBg:"rgba(80,95,120,0.12)", slateBorder:"rgba(122,133,153,0.30)",
+  indigo:"#9098c4", indigoBg:"rgba(90,100,140,0.10)", indigoBorder:"rgba(144,152,196,0.35)",
+  doc:"#cfd9d2", docBg:"rgba(60,80,72,0.30)", docBorder:"rgba(120,160,140,0.40)",
+  good:"#10b981", goodMuted:"rgba(16,185,129,0.75)",
+  bad:"#ef4444", badMuted:"rgba(239,68,68,0.78)"
+};
+
+// ============== ROBUST JSON PARSE ==============
+const extractJSON = (raw) => {
+  if (!raw) throw new Error("Empty response");
+  let s = String(raw).replace(/```json/gi,"").replace(/```/g,"").trim();
+  // Find first {...} block by brace matching
+  const first = s.indexOf("{");
+  if (first === -1) throw new Error("No JSON object found");
+  let depth = 0, end = -1, inStr = false, esc = false;
+  for (let i = first; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) throw new Error("Unbalanced JSON");
+  const candidate = s.slice(first, end + 1);
+  try { return JSON.parse(candidate); }
+  catch (e) {
+    // last-ditch: strip trailing commas
+    const cleaned = candidate.replace(/,(\s*[}\]])/g, "$1");
+    return JSON.parse(cleaned);
+  }
+};
+
+const callAPI = async (model, system, user, maxTokens=1800) => {
+  const userKey = localStorage.getItem("doorway_api_key");
+  const headers = {"content-type":"application/json"};
+  if (userKey) headers["x-user-api-key"] = userKey;
+  const r = await fetch("/api/claude",{method:"POST",headers,body:JSON.stringify({model,max_tokens:maxTokens,system,messages:[{role:"user",content:user}]})});
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || `API ${r.status}`);
+  const text = (d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n");
+  try { return extractJSON(text); }
+  catch (e) { console.error("Bad JSON. Raw:", text); throw new Error("Model returned bad JSON"); }
+};
+const HAIKU="claude-haiku-4-5";
+const SONNET="claude-sonnet-4-20250514";
+
+// ============== DEMOGRAPHIC TRACKING ==============
+const isNonWhite = (eth) => {
+  if (!eth) return false;
+  const s = eth.toLowerCase();
+  return /(hispan|latin|black|african|asian|native|indigen|pacific|middle east|arab|south asian|east asian)/.test(s);
+};
+const recordCaseDemographic = (eth) => {
+  try {
+    const arr = JSON.parse(localStorage.getItem("doorway_demo_log") || "[]");
+    arr.push({t:Date.now(), nw: isNonWhite(eth)});
+    localStorage.setItem("doorway_demo_log", JSON.stringify(arr.slice(-30)));
+  } catch {}
+};
+const needsNonWhiteFloor = () => {
+  try {
+    const arr = JSON.parse(localStorage.getItem("doorway_demo_log") || "[]");
+    if (arr.length < 5) return false;
+    const last10 = arr.slice(-10);
+    const nwCount = last10.filter(x=>x.nw).length;
+    return (nwCount / last10.length) < 0.30;
+  } catch { return false; }
+};
+
+// ============== LANDING ==============
+const VitalsStrip = () => {
+  const [hr, setHr] = useState(72);
+  useEffect(() => {
+    const i = setInterval(() => setHr(70 + Math.floor(Math.random()*5)), 1100);
+    return () => clearInterval(i);
+  }, []);
+  const today = new Date();
+  const stamp = `${String(today.getMonth()+1).padStart(2,"0")}${String(today.getDate()).padStart(2,"0")}.${today.getFullYear()}`;
+  return (
+    <div style={{position:"sticky",top:0,zIndex:30,height:36,background:"#000",borderBottom:`1px solid ${C.redDim}`,display:"flex",alignItems:"center",padding:"0 16px",gap:20,fontFamily:MONO,fontSize:10,letterSpacing:"0.05em"}}>
+      <span style={{color:C.red,display:"inline-flex",alignItems:"center",gap:6}}>
+        <span style={{width:6,height:6,borderRadius:"50%",background:C.red,animation:"pulse-dot 1.1s infinite"}}/>LIVE
+      </span>
+      <span style={{color:C.dim}}>HR <span style={{color:C.text,animation:"hr-flicker 1.1s infinite",display:"inline-block",minWidth:18}}>{hr}</span></span>
+      <span style={{color:C.dim}}>BP <span style={{color:C.text}}>118/76</span></span>
+      <span style={{color:C.dim}}>SpO₂ <span style={{color:C.text}}>98</span></span>
+      <span style={{marginLeft:"auto",color:C.faint}}>{stamp}</span>
+    </div>
+  );
+};
+
+const EKGTrace = () => {
+  // Build a long path: flatlines with periodic QRS complexes
+  const W = 2400, H = 80, mid = H/2;
+  let d = `M 0 ${mid}`;
+  const beat = 200; // px per beat
+  for (let x = 0; x < W; x += beat) {
+    d += ` L ${x+50} ${mid}`;
+    d += ` L ${x+58} ${mid-3} L ${x+66} ${mid+2}`;       // P
+    d += ` L ${x+80} ${mid} L ${x+86} ${mid+6}`;         // Q
+    d += ` L ${x+92} ${mid-28} L ${x+100} ${mid+14}`;    // R/S
+    d += ` L ${x+108} ${mid} L ${x+130} ${mid-4} L ${x+150} ${mid}`; // T
+    d += ` L ${x+beat} ${mid}`;
+  }
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.18,pointerEvents:"none"}}>
+      <path d={d} fill="none" stroke={C.red} strokeWidth="1.2" strokeDasharray="2400" style={{animation:"ekg-sweep 9s linear infinite"}}/>
+    </svg>
+  );
+};
+
+const StepBlock = ({n, title, body, delay}) => {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!ref.current) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setVisible(true); io.disconnect(); }
+    }, {threshold: 0.2});
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{display:"flex",gap:24,marginBottom:56,opacity:visible?1:0,transform:visible?"none":"translateY(20px)",transition:`all 900ms ${EASE} ${delay}ms`}}>
+      <div style={{flexShrink:0,fontSize:42,fontFamily:MONO,fontWeight:700,color:`${C.red}b0`,letterSpacing:"-0.04em",lineHeight:1}}>{n}</div>
+      <div>
+        <h3 style={{fontSize:24,fontWeight:600,margin:"0 0 10px",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h3>
+        <p style={{fontSize:15,color:C.dim,margin:0,lineHeight:1.6}}>{body}</p>
+      </div>
+    </div>
+  );
+};
+
+const Landing = ({onEnter}) => {
+  const [m,setM] = useState(false);
+  useEffect(()=>{setM(true)},[]);
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:SERIF}}>
+      <VitalsStrip/>
+      <section style={{position:"relative",padding:"96px 24px 110px",overflow:"hidden"}}>
+        <EKGTrace/>
+        <div style={{position:"relative",zIndex:1,opacity:m?1:0,transform:m?"none":"translateY(12px)",transition:`all 900ms ${EASE}`}}>
+          <div className="mono" style={{fontSize:10,letterSpacing:"0.32em",textTransform:"uppercase",color:C.red,marginBottom:36}}>An ER Gestalt Trainer</div>
+          <h1 style={{fontSize:"clamp(72px,17vw,124px)",lineHeight:0.84,fontWeight:700,letterSpacing:"-0.045em",margin:0}}>
+            The<br/>
+            <span className="display" style={{fontWeight:400,letterSpacing:"-0.04em"}}>Doorway.</span>
+          </h1>
+          <div style={{height:1,width:72,background:C.red,margin:"36px 0"}}/>
+          <p style={{fontSize:19,lineHeight:1.55,color:C.dim,maxWidth:480,margin:0}}>Every ER doctor develops a sixth sense — the read from the hallway, the hunch before the labs come back.</p>
+          <p style={{fontSize:19,lineHeight:1.55,maxWidth:480,marginTop:18}}>It's called clinical gestalt, and it's the hardest thing in medicine to teach.</p>
+          <p className="display" style={{fontSize:22,lineHeight:1.45,maxWidth:480,marginTop:22,color:C.text}}>This is the place you practice it.</p>
+        </div>
+        <button onClick={onEnter} className="btn-ghost" style={{position:"relative",zIndex:1,marginTop:60,display:"inline-flex",alignItems:"center",gap:14,padding:"20px 34px",background:C.text,color:C.bg,fontFamily:MONO,fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:500}}>
+          <span style={{width:8,height:8,background:C.red,borderRadius:"50%"}}/>Walk through the doorway<span style={{transition:`transform 200ms ${EASE}`}}>→</span>
+        </button>
+        <div className="mono" style={{position:"relative",zIndex:1,marginTop:14,fontSize:10,color:C.faint,letterSpacing:"0.1em"}}>No signup. A patient is waiting.</div>
+      </section>
+
+      <section style={{padding:"72px 24px",borderTop:`1px solid ${C.border}`}}>
+        <div className="mono" style={{fontSize:10,letterSpacing:"0.32em",textTransform:"uppercase",color:C.red,marginBottom:54}}>How it works</div>
+        {[["01","A patient arrives.","Chief complaint. Vitals. How they look. Two seconds to form your read."],["02","You work the problem.","Ask history. Examine. Order labs. The patient answers in character."],["03","You commit. Then you learn.","Differential ranked. Disposition. A senior attending grades you against the hidden truth."]].map(([n,t,b],i)=>(
+          <StepBlock key={n} n={n} title={t} body={b} delay={i*120}/>
+        ))}
+      </section>
+
+      <section style={{padding:"80px 24px",borderTop:`2px solid ${C.red}`,background:C.bg2}}>
+        <div className="mono" style={{fontSize:10,letterSpacing:"0.32em",textTransform:"uppercase",color:C.red,marginBottom:28}}>Why this exists</div>
+        <blockquote className="display" style={{fontSize:26,lineHeight:1.32,fontWeight:400,margin:0,color:C.text,letterSpacing:"-0.005em"}}>"Rural ER docs are the last generalists in medicine. They see the farmer with an unusual rash, the elderly fall on warfarin, and the subtle dissection — all in one shift, often alone, often at 3 AM."</blockquote>
+        <div style={{height:1,width:48,background:C.red,margin:"28px 0"}}/>
+        <p style={{fontSize:15,color:C.dim,lineHeight:1.7,margin:0}}>No commercial simulator trains the gestalt itself. None weights cases toward what you actually miss. None lives on your phone for ninety seconds between patients.</p>
+        <p style={{fontSize:15,lineHeight:1.7,fontWeight:600,marginTop:14,marginBottom:0}}>This one does.</p>
+      </section>
+
+      <section style={{padding:"110px 24px 90px",borderTop:`1px solid ${C.border}`,textAlign:"center"}}>
+        <p style={{fontSize:"clamp(40px,9vw,56px)",lineHeight:1.02,fontWeight:700,letterSpacing:"-0.04em",maxWidth:480,margin:"0 auto 44px"}}>
+          What's<br/>coming through<br/>the <span className="display" style={{fontWeight:400,color:C.red}}>door</span>?
+        </p>
+        <button onClick={onEnter} className="btn-primary" style={{display:"inline-flex",alignItems:"center",gap:14,padding:"22px 42px",background:C.red,color:C.text,fontFamily:MONO,fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:500,boxShadow:`0 24px 60px -22px ${C.red}`}}>
+          Accept your first patient<span>→</span>
+        </button>
+        <div className="mono" style={{marginTop:60,fontSize:9,color:C.faint,letterSpacing:"0.22em",textTransform:"uppercase"}}>
+          By Ted Delicath · Open source · MIT · github.com/adamb3d3/doorway
+        </div>
+      </section>
+    </div>
+  );
+};
+
+// ============== AVATAR — manual RGB interpolation, all signs cross-Fitz ==============
+// Fitzpatrick base skin colors as RGB tuples (1-6)
+const FITZ_RGB = [
+  [245, 220, 196],  // I
+  [232, 197, 163],  // II
+  [212, 163, 115],  // III
+  [176, 125, 90],   // IV
+  [138, 90, 60],    // V
+  [74, 44, 26],     // VI
+];
+
+const lerpRGB = (a, b, t) => [
+  Math.round(a[0] + (b[0]-a[0])*t),
+  Math.round(a[1] + (b[1]-a[1])*t),
+  Math.round(a[2] + (b[2]-a[2])*t),
+];
+const rgbStr = (rgb) => `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+
+// Pallor: shift toward desaturated grey-bone. On dark skin → ashen (slight grey overlay).
+const applyPallor = (baseRgb, intensity) => {
+  if (intensity <= 0) return baseRgb;
+  const t = Math.min(1, intensity * 0.18); // intensity 0-3
+  // Desaturate: pull toward luminance-matched grey
+  const lum = 0.299*baseRgb[0] + 0.587*baseRgb[1] + 0.114*baseRgb[2];
+  const grey = [lum, lum, lum];
+  // Then add a subtle ashen tone for dark skin (slight blue-grey)
+  const ashTarget = baseRgb[0] < 150 ? [Math.min(255, lum+10), Math.min(255, lum+12), Math.min(255, lum+18)] : grey;
+  return lerpRGB(baseRgb, ashTarget, t);
+};
+
+// Sclera color with jaundice (yellow shift on white-of-eye)
+const scleraColor = (jaundice) => {
+  const base = [245, 240, 232];
+  if (jaundice <= 0) return rgbStr(base);
+  const t = Math.min(1, jaundice * 0.28);
+  const yellow = [250, 225, 110];
+  return rgbStr(lerpRGB(base, yellow, t));
+};
+
+// Lip color with cyanosis — shift toward dusky purple-blue regardless of base
+const lipColor = (baseSkinRgb, cyanosis) => {
+  // Default lip: darker, more saturated than skin
+  const dlip = [
+    Math.max(60, baseSkinRgb[0] - 60),
+    Math.max(40, baseSkinRgb[1] - 65),
+    Math.max(50, baseSkinRgb[2] - 50),
+  ];
+  if (cyanosis <= 0) return rgbStr(dlip);
+  const t = Math.min(1, cyanosis * 0.28);
+  const blue = [78, 70, 130];
+  return rgbStr(lerpRGB(dlip, blue, t));
+};
+
+// Nailbed cyanosis annotation color (used for fingertip dots)
+const nailColor = (cyanosis) => {
+  if (cyanosis <= 0) return "rgb(220,180,170)";
+  const t = Math.min(1, cyanosis * 0.32);
+  const base = [220, 180, 170];
+  const blue = [70, 80, 140];
+  return rgbStr(lerpRGB(base, blue, t));
+};
+
+const Avatar = ({phys}) => {
+  if (!phys) return null;
+  const {
+    fitz=3, hair="#3a2820", rrRate=16, pallor=0, diaphoresis=0, cyanosis=0, jaundice=0,
+    guarding=0, eyeState="open", positioning="supine", distressLevel=0, age=40,
+    habitus="average", rashNote=null
+  } = phys;
+  const fz = Math.max(1, Math.min(6, Math.round(fitz)));
+  const baseRgb = FITZ_RGB[fz-1];
+  const skinRgb = applyPallor(baseRgb, pallor);
+  const sk = rgbStr(skinRgb);
+  const sclera = scleraColor(jaundice);
+  const lip = lipColor(baseRgb, cyanosis);
+  const nail = nailColor(cyanosis);
+  const breath = `${(60/Math.max(8,rrRate)).toFixed(2)}s`;
+  const tilt = positioning==="tripod"?-8:positioning==="fetal"?5:0;
+  const ey = eyeState==="closed"?0.5:eyeState==="half"?1.5:3;
+  const hColor = age>65?"#9a9288":age>55?"#5a4a3d":hair;
+  const shExt = habitus==="cachectic"?48:habitus==="obese"?68:55;
+  const nkW = habitus==="cachectic"?22:habitus==="obese"?42:30;
+  const showCyanosisLabel = cyanosis >= 2;
+  const showJaundiceLabel = jaundice >= 2;
+  const showPallorLabel = pallor >= 2;
+  return (
+    <svg viewBox="0 0 240 280" style={{width:"100%",height:"100%",display:"block"}}>
+      <defs>
+        <radialGradient id="bg" cx="50%" cy="35%">
+          <stop offset="0%" stopColor="#1a2333"/>
+          <stop offset="100%" stopColor="#06090f"/>
+        </radialGradient>
+      </defs>
+      <rect width="240" height="280" fill="url(#bg)"/>
+      <rect x="0" y="240" width="240" height="40" fill="#0c1320"/>
+
+      <g transform={`translate(120,150) rotate(${tilt})`}>
+        {/* Torso / gown */}
+        <path d={`M ${-shExt} 70 Q ${-shExt} 10 -30 -5 L 30 -5 Q ${shExt} 10 ${shExt} 70 Z`} fill={distressLevel>2?"#2a3246":"#3a4556"}>
+          <animateTransform attributeName="transform" type="scale" values="1 1;1 1.04;1 1" dur={breath} repeatCount="indefinite"/>
+        </path>
+        {/* Arms with nailbed at fingertips */}
+        <g transform={`translate(${-40+guarding*5},20) rotate(${guarding*15})`}>
+          <rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/>
+          <ellipse cx="0" cy="62" rx="8" ry="5" fill={nail}/>
+        </g>
+        <g transform={`translate(${40-guarding*5},20) rotate(${-guarding*15})`}>
+          <rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/>
+          <ellipse cx="0" cy="62" rx="8" ry="5" fill={nail}/>
+        </g>
+        {/* Neck */}
+        <rect x={-nkW/2} y="-35" width={nkW} height="35" fill={sk}/>
+        {/* Head */}
+        <g transform="translate(0,-75)">
+          <ellipse cx="0" cy="0" rx="42" ry="52" fill={sk}/>
+          <path d="M -42 -5 Q -45 -55 0 -58 Q 45 -55 42 -5 Q 38 -30 0 -35 Q -38 -30 -42 -5" fill={hColor}/>
+          {/* Eyes — sclera shows jaundice */}
+          <ellipse cx="-15" cy="5" rx="7" ry={ey+1} fill={sclera}/>
+          <ellipse cx="15" cy="5" rx="7" ry={ey+1} fill={sclera}/>
+          <ellipse cx="-15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/>
+          <ellipse cx="15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/>
+          {/* Mouth — lips show cyanosis */}
+          <path d={distressLevel>2?"M -12 28 Q 0 22 12 28":"M -10 26 Q 0 30 10 26"} stroke={lip} strokeWidth="3" fill="none" strokeLinecap="round"/>
+          {/* Sweat droplets — visible on any skin */}
+          {diaphoresis>0 && [...Array(Math.round(diaphoresis*4))].map((_,i)=>(
+            <circle key={i} cx={-30+i*12} cy={-25+(i%2)*8} r="1.8" fill="#bfe0ff" opacity="0.95" stroke="#5fa8d8" strokeWidth="0.4"/>
+          ))}
+        </g>
+      </g>
+
+      {/* Annotation callouts — top-right of frame */}
+      <g fontFamily={MONO} fontSize="8" fill="#f5f1e8" textAnchor="end">
+        {showCyanosisLabel && (
+          <g>
+            <line x1="170" y1="80" x2="232" y2="60" stroke="rgba(120,140,200,0.7)" strokeWidth="0.6"/>
+            <text x="232" y="56" fill="#a8b8e8">CYANOSIS · lips/nails</text>
+          </g>
+        )}
+        {showJaundiceLabel && (
+          <g>
+            <line x1="155" y1="92" x2="232" y2="74" stroke="rgba(220,200,80,0.7)" strokeWidth="0.6"/>
+            <text x="232" y="70" fill="#e8d878">JAUNDICE · sclera</text>
+          </g>
+        )}
+        {showPallorLabel && (
+          <text x="232" y="84" fill="#cfd6d2">PALLOR</text>
+        )}
+        {rashNote && (
+          <text x="232" y="98" fill="#d8a880">RASH · {String(rashNote).slice(0,28)}</text>
+        )}
+      </g>
+    </svg>
+  );
+};
+
+// ============== CASE GENERATOR ==============
+const FITZ_RULES = `Ethnicity → Fitzpatrick mapping (REQUIRED):
+- Northern European / Scandinavian → fitz 1-2
+- Mediterranean / Middle Eastern / Hispanic/Latino → fitz 3-4
+- South Asian → fitz 4-5
+- East Asian → fitz 2-4
+- African / African American / Afro-Caribbean → fitz 5-6
+- Indigenous / Native American → fitz 3-5
+The fitz value MUST match the stated ethnicity. This is a clinical equity requirement.`;
+
+const buildMenu = (forceNonWhite) => `Generate a realistic rural emergency department case. Use a randomized mix across the following case pool so the doctor sees genuine day-to-day variety, not a curated "worst cases" reel. Vary age, sex, acuity, and complexity across cases.
+
+CASE POOL (sample proportionally — do not over-index on any single tier):
+
+COMMON RURAL ED PRESENTATIONS (~60% of cases, the actual bread and butter):
+- Uncomplicated chest pain workups (most rule out)
+- Abdominal pain — gastroenteritis, constipation, UTI, uncomplicated appendicitis, cholecystitis, kidney stone, diverticulitis
+- Respiratory — COPD exacerbation, asthma, pneumonia, bronchitis, viral URI
+- Musculoskeletal — low back pain, sprains, uncomplicated falls, lacerations
+- Heads — uncomplicated migraine, tension headache, minor head injury
+- GI — GERD, gastritis, mild GI bleed, dehydration
+- Infections — cellulitis, abscess, pyelonephritis, pharyngitis
+- Behavioral — intoxication, anxiety, depression, suicidal ideation eval
+- Trauma — MVC low-speed, falls, isolated extremity injuries
+- Chronic disease exacerbations — CHF, COPD, uncontrolled diabetes
+- Pediatrics — fever, vomiting, simple injuries, asthma
+
+TRICKY PRESENTATIONS (~30% — real diagnostic challenge, not overtly zebra):
+- Atypical MI (women, diabetics, elderly with vague symptoms)
+- Early sepsis with near-normal vitals
+- Stroke with subtle or posterior-circulation findings
+- DKA presenting as abdominal pain
+- GI bleed without obvious melena
+- CHF vs PE vs pneumonia in elderly
+- Appendicitis with atypical presentation
+- Ectopic pregnancy masquerading as GI
+- Perforated ulcer
+- Anaphylaxis with only one system involved
+
+GENUINELY DIFFICULT / CAN'T-MISS (~10% — use sparingly, real zebras):
+- Aortic dissection presenting as MI or stroke
+- Subarachnoid hemorrhage with resolved headache
+- Bacterial meningitis early
+- Mesenteric ischemia
+- Cauda equina
+- Necrotizing fasciitis
+- Testicular torsion
+- Temporal arteritis
+
+RURAL-SPECIFIC FLAVOR (weave into any tier when fitting):
+- Farm/agricultural injury, snakebite, tick-borne illness, hypothermia, meth/opioid OD, fall on anticoagulation
+- Rural logistics: transfer delays, no overnight cath lab, no after-hours CT tech, long EMS times, patient declined earlier workup
+
+IMPORTANT: Randomize. Don't default to the same chief complaints. A session of 10 cases should feel like a real shift — many routine cases, a few that turn out to be more serious, occasionally something genuinely rare. Acuity should span 1 through 5 across cases.
+
+Demographic distribution: target rural US — ~75% white, 10% Hispanic/Latino, 8% Black, 3% Native American, 2% Asian, 2% other. ${forceNonWhite ? "FOR THIS CASE: ethnicity MUST be non-white (Hispanic/Latino, Black, Asian, Native American, Middle Eastern, or South Asian) to maintain ≥30% non-white floor." : ""}
+${FITZ_RULES}`;
+
+const CHIPS = {
+  History:["When did this start?","Describe pain","Associated symptoms?","PMH?","Medications?","Allergies?","Social history?"],
+  Exam:["General appearance","Auscultate lungs","Auscultate heart","Palpate abdomen","Extremities","Neuro exam","HEENT"],
+  Labs:["CBC+BMP","Troponin","Lactate","D-dimer","VBG","Coags","UA","Cultures"],
+  Imaging:["ECG","CXR","CT head","CT chest PE","CT abd","Bedside US"],
+  Meds:["ASA 325","Nitro SL","Morphine","Zofran","IV fluids","Antibiotics","Narcan"],
+  Procs:["IV","Foley","LP","Intubate","Chest tube"]
+};
+const DISPOS = ["Discharge","Obs","Admit","ICU","Transfer","OR"];
+
+// ============== TRAINER ==============
+const Trainer = ({onHome}) => {
+  const [view,setView]=useState("loading");
+  const [patient,setPatient]=useState(null);
+  const [nextCache,setNextCache]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [log,setLog]=useState([]);
+  const [input,setInput]=useState("");
+  const [gestalt,setGestalt]=useState(null);
+  const [acuity,setAcuity]=useState(3);
+  const [showCommit,setShowCommit]=useState(false);
+  const [ddx,setDdx]=useState("");
+  const [finalDispo,setFinalDispo]=useState("");
+  const [score,setScore]=useState(null);
+  const [displayScore,setDisplayScore]=useState(0);
+  const [openCat,setOpenCat]=useState(null);
+  const [timer,setTimer]=useState(0);
+  const [listening,setListening]=useState(false);
+  const [caseKey,setCaseKey]=useState(0);
+  const [stats,setStats]=useState(()=>{try{return JSON.parse(localStorage.getItem("doorway_stats"))||{cases:0,avg:0,streak:0,last:null,history:[]}}catch{return{cases:0,avg:0,streak:0,last:null,history:[]}}});
+  const logEnd=useRef(null);
+  const recog=useRef(null);
+
+  const haptic=(ms)=>{try{navigator.vibrate?.(ms)}catch{}};
+  useEffect(()=>{logEnd.current?.scrollIntoView({behavior:"smooth"})},[log]);
+  useEffect(()=>{if(view==="case"&&!score){const i=setInterval(()=>setTimer(t=>t+1),1000);return()=>clearInterval(i)}},[view,score]);
+  useEffect(()=>{newCase()},[]);
+
+  const genCase = async ()=>{
+    const forceNW = needsNonWhiteFloor();
+    const sys = `ER case generator for rural emergency medicine training. Return ONLY a single JSON object — no prose, no markdown, no preamble. Begin with { and end with }.`;
+    const user = `${buildMenu(forceNW)}
+
+Return EXACTLY this JSON shape:
+{"name":"","age":n,"sex":"M|F","ethnicity":"","occupation":"","chiefComplaint":"","arrivalMode":"","emsHandoff":null,"vitals":{"HR":n,"BP":"s/d","RR":n,"SpO2":n,"Temp":"F","GCS":n},"doorwayImpression":"2 sentences","physicality":{"fitz":1-6,"hair":"#hex","rrRate":n,"pallor":0-3,"diaphoresis":0-3,"cyanosis":0-3,"jaundice":0-3,"guarding":0-3,"eyeState":"open|half|closed","positioning":"supine|tripod|fetal|sitting","distressLevel":0-4,"age":n,"habitus":"cachectic|average|obese","rashNote":null or "brief description"},"patientPersona":"","_hidden":{"trueDiagnosis":"","mustNotMiss":["..."],"idealWorkup":["..."],"trueAcuity":1-5,"trueDispo":"Discharge|Obs|Admit|ICU|Transfer|OR","teachingPoint":"","teachingLong":"","ruralTwist":"","complaintCategory":""}}
+
+CRITICAL: physicality.fitz MUST match ethnicity per the mapping above. No exceptions.`;
+    return await callAPI(HAIKU, sys, user, 2200);
+  };
+
+  const newCase = async ()=>{
+    setLoading(true);setError(null);setLog([]);setShowCommit(false);setScore(null);
+    setDdx("");setFinalDispo("");setGestalt(null);setAcuity(3);setOpenCat(null);setTimer(0);
+    setCaseKey(k=>k+1);
+    try{
+      const p = nextCache || await genCase();
+      setNextCache(null);
+      setPatient(p);setView("case");
+      recordCaseDemographic(p.ethnicity);
+      setLog([{k:"obs",t:p.doorwayImpression}]);
+      haptic(20);
+    }catch(e){setError(e.message);setView("case")}
+    setLoading(false);
+  };
+
+  useEffect(()=>{
+    if(!score)return;
+    haptic([40,60,120]);
+    const start=performance.now(),target=score.score;
+    const tick=(now)=>{const t=Math.min(1,(now-start)/1200);setDisplayScore(Math.round(target*(1-Math.pow(1-t,3))));if(t<1)requestAnimationFrame(tick)};
+    requestAnimationFrame(tick);
+    genCase().then(setNextCache).catch(()=>{});
+  },[score]);
+
+  // ============== MULTI-ACTION SEND ==============
+  const send = async (rawText)=>{
+    const text = rawText?.trim();
+    if(!text || !patient) return;
+    setOpenCat(null); setInput("");
+    const docMsg = {k:"doc", t:text};
+    setLog(prev => [...prev, docMsg]);
+    setLoading(true); haptic(10);
+
+    try {
+      const sys = `Live ER encounter response engine. The doctor may issue ONE action or MULTIPLE compound actions in a single message (e.g., "auscultate lungs and heart, check pulses, order ECG and troponin and CBC").
+
+Parse the doctor's input into discrete clinical actions. For EACH action, generate a separate response.
+
+Voice rules (strict):
+- HISTORY questions → "patient" voice, in character per persona: ${patient.patientPersona}
+- EXAM findings → "clinical" voice, third-person clinical observation
+- LAB results → "clinical" voice, return values in monospace-friendly format (e.g., "WBC 14.2, Hgb 9.1, lactate 3.8")
+- IMAGING results → "clinical" voice, brief read
+- MEDICATION administered → "clinical" voice, brief effect note
+- PROCEDURE → "clinical" voice, brief outcome
+
+Hidden truth (use to drive realistic findings): ${JSON.stringify(patient._hidden)}
+Current vitals: ${JSON.stringify(patient.vitals)}
+
+Return ONLY this JSON, no prose, no markdown:
+{"responses":[{"kind":"patient|clinical","text":"1-3 sentences","mono":true|false,"obs":null|"visible change","delta":null|{field:val}}]}
+
+- "mono": true ONLY for lab values and imaging numeric reads
+- "obs": brief observation if patient's appearance changes (added as separate observation bubble after the response)
+- "delta": physicality field updates, e.g. {"diaphoresis":2,"distressLevel":3}
+- If single action, return a single-element array.
+- Maximum 6 responses per turn.`;
+
+      const recent = log.slice(-8);
+      const userMsg = `Doctor said: "${text}"\nRecent log: ${JSON.stringify(recent)}`;
+      const r = await callAPI(HAIKU, sys, userMsg, 1400);
+
+      // Defensive: accept either {responses:[...]} or single-shape legacy
+      let responses = [];
+      if (Array.isArray(r?.responses) && r.responses.length > 0) {
+        responses = r.responses;
+      } else if (r?.text || r?.kind) {
+        responses = [{kind:r.kind||"clinical", text:r.text||"[no response]", mono:!!r.mono, obs:r.obs||null, delta:r.delta||null}];
+      } else {
+        responses = [{kind:"clinical", text:"[no response]", mono:false, obs:null, delta:null}];
+      }
+
+      // Stagger responses ~400ms apart
+      for (let i = 0; i < responses.length; i++) {
+        const resp = responses[i];
+        const k = resp.kind === "patient" ? "patient" : "clinical";
+        const bubbleObj = {k, t: resp.text || "[...]", mono: !!resp.mono};
+        await new Promise(res => setTimeout(res, i === 0 ? 120 : 400));
+        setLog(prev => [...prev, bubbleObj]);
+        if (resp.obs) {
+          await new Promise(res => setTimeout(res, 220));
+          setLog(prev => [...prev, {k:"obs", t: resp.obs}]);
+        }
+        if (resp.delta && typeof resp.delta === "object") {
+          setPatient(p => p ? ({...p, physicality:{...p.physicality, ...resp.delta}}) : p);
+        }
+      }
+    } catch(e) {
+      setLog(prev => [...prev, {k:"clinical", t:"[error: "+e.message+"]"}]);
+    }
+    setLoading(false);
+  };
+
+  const commit = async ()=>{
+    if(!ddx||!finalDispo)return;
+    setLoading(true);haptic(30);
+    try{
+      const r = await callAPI(SONNET,"Senior EM attending grading a rural ER doc. Return ONLY JSON.",
+`Hidden: ${JSON.stringify(patient._hidden)}
+Gut dispo: ${gestalt} (true: ${patient._hidden.trueDispo}) · Acuity: ${acuity} (true: ${patient._hidden.trueAcuity}) · Time: ${timer}s
+Actions: ${JSON.stringify(log.filter(l=>l.k==="doc").map(l=>l.t))}
+DDx: ${ddx} · Dispo: ${finalDispo}
+Return: {"score":0-100,"caughtInDdx":bool,"missedCantMiss":["..."],"gestaltCal":"spot-on|close|over|under","workup":"lean|appropriate|shotgun|insufficient","dispoOk":bool,"wins":["..."],"misses":["..."],"teaching":"","teachingLong":"","ruralLesson":"","trueDx":"","rule":"or null"}`,1300);
+      setScore(r);setView("score");
+      const today=new Date().toDateString();
+      const yday=new Date(Date.now()-86400000).toDateString();
+      const streak = stats.last===today?stats.streak:(stats.last===yday?stats.streak+1:1);
+      const entry={date:Date.now(),dx:r.trueDx,caught:r.caughtInDdx,gestalt,acuity,actualAcuity:patient._hidden.trueAcuity,score:r.score};
+      const ns={cases:stats.cases+1,avg:Math.round(((stats.avg*stats.cases)+r.score)/(stats.cases+1)),streak,last:today,history:[...(stats.history||[]),entry].slice(-100)};
+      setStats(ns);localStorage.setItem("doorway_stats",JSON.stringify(ns));
+    }catch(e){setError("Grading failed: "+e.message)}
+    setLoading(false);
+  };
+
+  const voice = ()=>{
+    if(listening){recog.current?.stop();return}
+    const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){setError("Voice not supported here");return}
+    const r = new SR();r.lang="en-US";r.interimResults=false;
+    r.onresult=(e)=>{const t=e.results[0][0].transcript;setListening(false);send(t)};
+    r.onerror=()=>setListening(false);r.onend=()=>setListening(false);
+    r.start();recog.current=r;setListening(true);haptic(15);
+  };
+
+  const v = patient?.vitals;
+  const flag=(k,x)=>k==="HR"?(x<60||x>100):k==="RR"?(x<12||x>20):k==="SpO2"?x<94:k==="GCS"?x<15:false;
+  const fmt=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+
+  // ===== Refined bubble palette =====
+  const bubble = {
+    doc:      {background:C.docBg,    color:C.doc,    border:`1px solid ${C.docBorder}`,    marginLeft:"auto"},
+    patient:  {background:C.amberBg,  color:"#f0d8a4",border:`1px solid ${C.amberBorder}`,  borderLeft:`2px solid ${C.amber}`},
+    clinical: {background:C.slateBg,  color:"#dfe5ee",border:`1px solid ${C.slateBorder}`},
+    obs:      {background:C.indigoBg, color:"#cdd2ee",border:`1px solid ${C.indigoBorder}`, borderLeft:`2px solid ${C.indigo}`,fontStyle:"italic",fontFamily:DISPLAY,fontSize:14}
+  };
+  const labels = {doc:"You", patient:patient?.name?.split(" ")[0]||"Pt", clinical:"Clinical", obs:"You see"};
+
+  // ============== SCORE VIEW ==============
+  if(view==="score"&&score){
+    const scoreColor = score.score >= 80 ? C.goodMuted : score.score >= 60 ? C.amber : C.badMuted;
+    return (
+      <div className="case-fade" style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:SERIF,display:"flex",flexDirection:"column",padding:16}}>
+        <div style={{textAlign:"center",margin:"28px 0 18px"}}>
+          <div className="mono" style={{fontSize:10,letterSpacing:"0.32em",textTransform:"uppercase",color:C.faint}}>Score</div>
+          <div className={displayScore===score.score?"score-glow":""} style={{fontSize:84,fontFamily:MONO,fontWeight:700,color:scoreColor,letterSpacing:"-0.04em",lineHeight:1,marginTop:6}}>{displayScore}</div>
+          <div style={{fontSize:13,color:C.dim,marginTop:8}}>True diagnosis: <span className="display" style={{color:C.amber,fontSize:16}}>{score.trueDx}</span></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          {[["Caught",score.caughtInDdx,score.caughtInDdx?"✓":"✗"],["Dispo",score.dispoOk,score.dispoOk?"✓":"✗"],["Gestalt",["spot-on","close"].includes(score.gestaltCal),score.gestaltCal],["Workup",["lean","appropriate"].includes(score.workup),score.workup]].map(([k,g,val])=>(
+            <div key={k} style={{padding:10,borderRadius:4,border:`1px solid ${g?"rgba(16,185,129,0.4)":"rgba(239,68,68,0.4)"}`,background:g?"rgba(16,185,129,0.07)":"rgba(239,68,68,0.07)"}}>
+              <div className="mono" style={{fontSize:9,textTransform:"uppercase",color:C.dim,letterSpacing:"0.15em"}}>{k}</div>
+              <div style={{fontSize:14,marginTop:3}}>{val}</div>
+            </div>
+          ))}
+        </div>
+        {score.missedCantMiss?.length>0 && (
+          <div style={{padding:10,background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.35)",borderRadius:4,marginBottom:10,fontSize:13}}>
+            <span style={{color:C.badMuted,fontWeight:600}}>⚠ Missed: </span>{score.missedCantMiss.join(", ")}
+          </div>
+        )}
+        {score.wins?.map((w,i)=>(
+          <div key={"w"+i} style={{padding:8,background:"rgba(16,185,129,0.06)",borderLeft:`2px solid ${C.goodMuted}`,fontSize:13,marginBottom:5}}>✓ {w}</div>
+        ))}
+        {score.misses?.map((w,i)=>(
+          <div key={"m"+i} style={{padding:8,background:"rgba(239,68,68,0.06)",borderLeft:`2px solid ${C.badMuted}`,fontSize:13,marginBottom:5}}>✗ {w}</div>
+        ))}
+        <div style={{marginTop:14,padding:12,background:C.amberBg,borderLeft:`2px solid ${C.amber}`,borderRadius:4,fontSize:14,fontStyle:"italic",fontFamily:DISPLAY,lineHeight:1.45}}>
+          {score.teaching}
+          {score.teachingLong && <div style={{marginTop:10,fontStyle:"normal",fontFamily:SERIF,color:C.dim,fontSize:12,lineHeight:1.55}}>{score.teachingLong}</div>}
+        </div>
+        {score.ruralLesson && <div style={{marginTop:10,fontSize:12,color:C.dim}}><span className="mono" style={{fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:C.red,marginRight:6}}>Rural</span>{score.ruralLesson}</div>}
+        <div style={{marginTop:"auto",paddingTop:18,display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={newCase} className="btn-primary" style={{padding:18,background:C.red,color:C.text,borderRadius:4,fontSize:13,fontWeight:500,fontFamily:MONO,letterSpacing:"0.14em",textTransform:"uppercase",boxShadow:`0 16px 40px -16px ${C.red}`}}>
+            {nextCache?"Next Patient →":"Next Patient (loading) →"}
+          </button>
+          <button onClick={onHome} className="btn-ghost" style={{padding:10,border:`1px solid ${C.border}`,background:"transparent",color:C.dim,borderRadius:4,fontSize:11,fontFamily:MONO,letterSpacing:"0.1em",textTransform:"uppercase"}}>Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============== TRAINER VIEW ==============
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:SERIF,display:"flex",flexDirection:"column"}}>
+      {/* Razor-thin progress bar at the very top */}
+      <div style={{height:2,background:"transparent",position:"sticky",top:0,zIndex:25}}>
+        <div style={{height:"100%",background:C.red,width:`${Math.min(100,timer/4.8)}%`,transition:`width 1s linear`}}/>
+      </div>
+      <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(10,10,10,0.92)",backdropFilter:"blur(8px)",zIndex:20}}>
+        <button onClick={onHome} className="btn-ghost" style={{color:C.dim,fontSize:11,fontFamily:MONO,letterSpacing:"0.12em",textTransform:"uppercase",padding:"4px 6px"}}>← Home</button>
+        <div className="mono" style={{fontSize:12,color:C.dim,letterSpacing:"0.05em"}}>{fmt(timer)}</div>
+      </header>
+
+      {error && (
+        <div style={{margin:10,padding:10,background:"rgba(139,0,0,0.15)",border:`1px solid ${C.red}`,borderRadius:4,fontSize:12}}>
+          {error} <button onClick={()=>setError(null)} style={{color:C.text,textDecoration:"underline",marginLeft:8,fontSize:11}}>×</button>
+        </div>
+      )}
+      {loading && !patient && (
+        <div className="display" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:C.dim,fontSize:18}}>Triaging…</div>
+      )}
+
+      {patient && (
+        <div key={caseKey} className="case-fade" style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
+          <div style={{padding:"10px 12px 0"}}>
+            <div style={{display:"flex",gap:14}}>
+              <div style={{width:96,aspectRatio:"6/7",borderRadius:4,border:`1px solid ${C.border}`,overflow:"hidden",flexShrink:0,background:"#0a0f18"}}>
+                <Avatar phys={patient.physicality}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-0.01em"}}>{patient.name}</div>
+                <div className="mono" style={{fontSize:10,color:C.dim,letterSpacing:"0.04em",marginTop:2}}>{patient.age}{patient.sex} · {patient.ethnicity||"—"} · {patient.occupation}</div>
+                <div className="mono" style={{fontSize:9,color:C.faint,marginTop:1}}>{patient.arrivalMode}</div>
+                <div style={{marginTop:6,padding:8,background:C.amberBg,borderLeft:`2px solid ${C.amber}`,fontSize:13,lineHeight:1.4}}>
+                  <div className="mono" style={{fontSize:8,textTransform:"uppercase",color:C.amber,letterSpacing:"0.18em",marginBottom:2}}>CC</div>
+                  {patient.chiefComplaint}
+                </div>
+                {patient.emsHandoff && <div className="display" style={{marginTop:6,fontSize:13,color:C.dim,lineHeight:1.4}}>EMS: "{patient.emsHandoff}"</div>}
+              </div>
+            </div>
+            <div style={{marginTop:10,display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:5}}>
+              {[["HR",v.HR,"HR"],["BP",v.BP,"BP"],["RR",v.RR,"RR"],["SpO₂",v.SpO2+"%","SpO2"],["T",v.Temp,"T"],["GCS",v.GCS,"GCS"]].map(([k,val,fk])=>{
+                const bad=flag(fk,typeof val==="string"?parseInt(val):val);
+                return (
+                  <div key={k} className={bad?"vital-bad":""} style={{padding:"5px 2px",borderRadius:3,border:`1px solid ${bad?"rgba(239,68,68,0.5)":C.border}`,background:bad?"rgba(239,68,68,0.06)":"rgba(245,241,232,0.02)",textAlign:"center"}}>
+                    <div className="mono" style={{fontSize:8,textTransform:"uppercase",color:C.faint,letterSpacing:"0.1em"}}>{k}</div>
+                    <div className="mono" style={{fontSize:12,color:bad?"#f4b8b8":C.text,marginTop:1}}>{val}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:7,minHeight:0}}>
+            {log.map((m,i)=>(
+              <div key={i} className="bubble" style={{display:"flex",justifyContent:m.k==="doc"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"86%",padding:"7px 11px",borderRadius:4,...bubble[m.k]}}>
+                  <div className="mono" style={{fontSize:8,textTransform:"uppercase",opacity:0.65,letterSpacing:"0.15em",marginBottom:2}}>{labels[m.k]}</div>
+                  <div style={{fontSize:m.k==="obs"?14:13,lineHeight:1.45,fontFamily:m.mono?MONO:(m.k==="obs"?DISPLAY:SERIF),fontStyle:m.k==="obs"?"italic":"normal"}}>{m.t}</div>
+                </div>
+              </div>
+            ))}
+            {loading && <div className="display" style={{color:C.faint,fontSize:13,fontStyle:"italic"}}>…</div>}
+            <div ref={logEnd}/>
+          </div>
+
+          <div style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+            {openCat && (
+              <div className="scrollx" style={{padding:"7px 8px 2px",display:"flex",gap:6,overflowX:"auto"}}>
+                {CHIPS[openCat].map(a=>(
+                  <button key={a} onClick={()=>send(a)} className="chip" style={{flexShrink:0,padding:"7px 12px",background:C.bg3,color:C.text,borderRadius:999,fontSize:11,whiteSpace:"nowrap",border:`1px solid ${C.border}`}}>{a}</button>
+                ))}
+              </div>
+            )}
+            <div className="scrollx" style={{padding:"7px 8px 0",display:"flex",gap:6,overflowX:"auto"}}>
+              {Object.keys(CHIPS).map(cat=>(
+                <button key={cat} onClick={()=>{setOpenCat(openCat===cat?null:cat);haptic(8)}} className="chip mono" style={{flexShrink:0,padding:"5px 14px",background:openCat===cat?C.red:C.bg3,color:openCat===cat?C.text:C.dim,borderRadius:999,fontSize:10,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",border:`1px solid ${openCat===cat?C.red:C.border}`}}>{cat}</button>
+              ))}
+            </div>
+
+            {!showCommit ? (
+              <div style={{padding:10,display:"flex",flexDirection:"column",gap:9}}>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={voice} className="chip" style={{padding:"0 13px",borderRadius:4,background:listening?C.red:C.bg3,color:C.text,fontSize:18,border:`1px solid ${listening?C.red:C.border}`}}>🎤</button>
+                  <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send(input)} style={{flex:1,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"11px 12px",fontSize:13,color:C.text,outline:"none",fontFamily:SERIF}} placeholder="tap, type, or speak…"/>
+                  <button onClick={()=>send(input)} disabled={loading||!input.trim()} className="btn-primary" style={{padding:"0 16px",background:C.red,color:C.text,borderRadius:4,fontSize:14,opacity:loading||!input.trim()?0.35:1,fontFamily:MONO}}>→</button>
+                </div>
+                <div style={{padding:10,background:"rgba(245,241,232,0.025)",border:`1px solid ${C.border}`,borderRadius:4,display:"flex",flexDirection:"column",gap:10}}>
+                  <div>
+                    <div className="mono" style={{fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:5,letterSpacing:"0.15em"}}>Gut dispo</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
+                      {DISPOS.map(d=><button key={d} onClick={()=>{setGestalt(d);haptic(10)}} className="chip" style={{padding:"7px 2px",borderRadius:3,background:gestalt===d?C.red:C.bg3,color:gestalt===d?C.text:C.dim,fontSize:10,lineHeight:1.2,border:`1px solid ${gestalt===d?C.red:C.border}`,fontFamily:MONO,letterSpacing:"0.05em"}}>{d}</button>)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mono" style={{display:"flex",justifyContent:"space-between",fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:5,letterSpacing:"0.15em"}}>
+                      <span>Acuity</span><span>{["","well","minor","concerning","sick","crashing"][acuity]}</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+                      {[1,2,3,4,5].map(n=><button key={n} onClick={()=>{setAcuity(n);haptic(10)}} className="chip" style={{padding:"9px 0",borderRadius:3,background:acuity===n?C.amber:C.bg3,color:acuity===n?C.bg:C.dim,fontFamily:MONO,fontSize:13,fontWeight:600,border:`1px solid ${acuity===n?C.amber:C.border}`}}>{n}</button>)}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={()=>setShowCommit(true)} disabled={!gestalt} className="btn-ghost mono" style={{padding:12,border:`1px solid ${gestalt?C.red:C.border}`,color:gestalt?C.text:C.faint,background:"transparent",borderRadius:4,fontSize:11,opacity:gestalt?1:0.45,letterSpacing:"0.14em",textTransform:"uppercase"}}>{gestalt?"Ready to commit →":"Set gut dispo first"}</button>
+              </div>
+            ) : (
+              <div style={{padding:10,display:"flex",flexDirection:"column",gap:9}}>
+                <input value={ddx} onChange={e=>setDdx(e.target.value)} placeholder="DDx: 1… 2… 3…" style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"10px 12px",fontSize:13,color:C.text,outline:"none",fontFamily:SERIF}}/>
+                <div>
+                  <div className="mono" style={{fontSize:9,textTransform:"uppercase",color:C.dim,marginBottom:5,letterSpacing:"0.15em"}}>Final dispo</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
+                    {DISPOS.map(d=><button key={d} onClick={()=>{setFinalDispo(d);haptic(10)}} className="chip" style={{padding:"10px 4px",borderRadius:3,background:finalDispo===d?C.red:C.bg3,color:finalDispo===d?C.text:C.dim,fontSize:11,border:`1px solid ${finalDispo===d?C.red:C.border}`,fontFamily:MONO,letterSpacing:"0.05em"}}>{d}</button>)}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setShowCommit(false)} className="btn-ghost mono" style={{padding:"10px 14px",border:`1px solid ${C.border}`,background:"transparent",color:C.text,borderRadius:4,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase"}}>← Back</button>
+                  <button onClick={commit} disabled={loading||!ddx||!finalDispo} className="btn-primary mono" style={{flex:1,padding:12,background:C.red,color:C.text,borderRadius:4,fontSize:11,opacity:(loading||!ddx||!finalDispo)?0.4:1,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:500}}>{loading?"Grading…":"Submit & Grade"}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============== APP ==============
+const App = () => {
+  const [view,setView] = useState(()=>{
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("home") || params.has("landing")) return "landing";
+    } catch {}
+    return localStorage.getItem("doorway_entered") ? "trainer" : "landing";
+  });
+  const enter = ()=>{localStorage.setItem("doorway_entered","1");setView("trainer")};
+  const home = ()=>setView("landing");
+  if(view==="landing") return <Landing onEnter={enter}/>;
+  return <Trainer onHome={home}/>;
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
