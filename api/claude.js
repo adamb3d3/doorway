@@ -3,16 +3,20 @@
 //
 // Hardening:
 // - POST only; request body capped at 200 KB.
-// - X-DW-Kind must be one of case | results | turn | grade (else 400).
-// - Model allowlist: only claude-sonnet-5-5.
-// - The upstream body is rebuilt from {model, max_tokens, system, messages};
-//   anything else the client sends is dropped. max_tokens is capped by kind
-//   (case/results 8000, turn/grade 1500).
+// - X-DW-Kind must be one of case | results | review | turn | grade (else 400).
+// - Model allowlist: claude-sonnet-5-5 and claude-opus-5-5.
+// - The upstream body is rebuilt from {model, max_tokens, system, messages} plus
+//   an allowlisted output_config ({effort, format:{type:"json_schema",schema}})
+//   and thinking ({type:"adaptive"[,display]} or {type:"between_tools"}); anything
+//   else the client sends is dropped. max_tokens is capped by kind (case/results
+//   16000, review/grade 8000, turn 6000). The cap includes the model's thinking
+//   tokens, which is why it is generous.
 // - Origin check: if the request carries Origin (or, failing that, Referer), its
 //   host must be the request's own host, VERCEL_URL, or one listed in
 //   ALLOWED_ORIGIN (comma-separated). Requests with neither header pass.
-// - Rate limit on the server key, per IP per 24 h, by kind: case 12,
-//   results 12, turn 400, grade 15. IP comes from x-vercel-forwarded-for, then
+// - Rate limit on the server key, per IP per 24 h, by kind: case 60,
+//   results 60, review 60, turn 2000, grade 60. A brake against a runaway
+//   client, not a budget. IP comes from x-vercel-forwarded-for, then
 //   x-real-ip, then x-forwarded-for. A request carrying X-User-API-Key uses that
 //   key and skips the limit.
 // - A counted slot is refunded when the upstream call fails or the client
@@ -24,13 +28,37 @@
 // cost ceiling is the monthly spend limit on the Anthropic Console workspace
 // that holds ANTHROPIC_API_KEY (see README).
 
-const ALLOWED_MODELS = ["claude-sonnet-5-5"];
+const ALLOWED_MODELS = ["claude-sonnet-5-5", "claude-opus-5-5"];
 const KINDS = {
-  case: { limit: 12, maxTokens: 8000, noun: "new cases" },
-  results: { limit: 12, maxTokens: 8000, noun: "results sheets" },
-  turn: { limit: 400, maxTokens: 1500, noun: "patient turns" },
-  grade: { limit: 15, maxTokens: 1500, noun: "grades" },
+  case: { limit: 60, maxTokens: 16000, noun: "new cases" },
+  results: { limit: 60, maxTokens: 16000, noun: "results sheets" },
+  review: { limit: 60, maxTokens: 8000, noun: "case reviews" },
+  turn: { limit: 2000, maxTokens: 6000, noun: "patient turns" },
+  grade: { limit: 60, maxTokens: 8000, noun: "grades" },
 };
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+// Only the shapes the app sends; anything else is dropped rather than forwarded.
+function cleanOutputConfig(oc) {
+  if (!oc || typeof oc !== "object") return null;
+  const out = {};
+  if (EFFORTS.includes(oc.effort)) out.effort = oc.effort;
+  const f = oc.format;
+  if (f && typeof f === "object" && f.type === "json_schema" && f.schema && typeof f.schema === "object") {
+    out.format = { type: "json_schema", schema: f.schema };
+  }
+  return Object.keys(out).length ? out : null;
+}
+function cleanThinking(t) {
+  if (!t || typeof t !== "object") return null;
+  if (t.type === "adaptive") {
+    const out = { type: "adaptive" };
+    if (t.display === "summarized" || t.display === "omitted") out.display = t.display;
+    return out;
+  }
+  if (t.type === "between_tools") return { type: "between_tools" };
+  return null;
+}
 const MAX_BODY_BYTES = 200 * 1024;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 const UPSTREAM = "https://api.anthropic.com/v1/messages";
@@ -114,7 +142,7 @@ export default async function handler(req, res) {
 
   const kind = String(header(req, "x-dw-kind") || "").toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(KINDS, kind)) {
-    return send(res, 400, { error: "Missing or unknown X-DW-Kind (case, results, turn or grade)." });
+    return send(res, 400, { error: "Missing or unknown X-DW-Kind (case, results, review, turn or grade)." });
   }
   if (!originAllowed(req)) return send(res, 403, { error: "Requests from other sites are not allowed." });
 
@@ -130,7 +158,7 @@ export default async function handler(req, res) {
   }
   if (!body || typeof body !== "object") return send(res, 400, { error: "Body must be JSON." });
 
-  const { model, max_tokens, system, messages } = body;
+  const { model, max_tokens, system, messages, output_config, thinking } = body;
   if (!ALLOWED_MODELS.includes(model)) {
     return send(res, 400, { error: `Model not allowed. Use ${ALLOWED_MODELS.join(", ")}.` });
   }
@@ -143,6 +171,10 @@ export default async function handler(req, res) {
 
   const upstreamBody = { model, max_tokens: cappedTokens, messages };
   if (system !== undefined && system !== null && system !== "") upstreamBody.system = system;
+  const oc = cleanOutputConfig(output_config);
+  if (oc) upstreamBody.output_config = oc;
+  const th = cleanThinking(thinking);
+  if (th) upstreamBody.thinking = th;
 
   const userKey = header(req, "x-user-api-key");
   const apiKey = userKey || process.env.ANTHROPIC_API_KEY;

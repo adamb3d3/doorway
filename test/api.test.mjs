@@ -61,14 +61,47 @@ test("model allowlist: accepts claude-sonnet-5-5 and sets headers", async () => 
 });
 
 test("max_tokens capped by kind and body rebuilt from allowed keys only", async () => {
-  await call({ headers: { "x-dw-kind": "case" }, body: { model: "claude-sonnet-5-5", max_tokens: 64000, system: "sys", messages: [{ role: "user", content: "x" }], tools: [{}], temperature: 2, stream: true } });
+  await call({ headers: { "x-dw-kind": "case" }, body: { model: "claude-sonnet-5-5", max_tokens: 64000, system: "sys", messages: [{ role: "user", content: "x" }], tools: [{}], temperature: 2, stream: true, betas: ["x"], fallbacks: "default" } });
   const b = calls[0].body;
-  assert.equal(b.max_tokens, 8000);
+  assert.equal(b.max_tokens, 16000);
   assert.deepEqual(Object.keys(b).sort(), ["max_tokens", "messages", "model", "system"]);
-  for (const [kind, cap] of [["results", 8000], ["turn", 1500], ["grade", 1500]]) {
-    await call({ headers: { "x-dw-kind": kind }, body: { model: "claude-sonnet-5-5", max_tokens: 9000, messages: [{ role: "user", content: "x" }] } });
+  for (const [kind, cap] of [["results", 16000], ["review", 8000], ["turn", 6000], ["grade", 8000]]) {
+    await call({ headers: { "x-dw-kind": kind }, body: { model: "claude-sonnet-5-5", max_tokens: 90000, messages: [{ role: "user", content: "x" }] } });
     assert.equal(calls.at(-1).body.max_tokens, cap, kind);
   }
+});
+
+test("model allowlist: accepts claude-opus-5-5", async () => {
+  const res = await call({ body: { model: "claude-opus-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }] } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls[0].body.model, "claude-opus-5-5");
+});
+
+test("output_config: effort and json_schema format pass through; anything else is dropped", async () => {
+  const schema = { type: "object", properties: { a: { type: "string" } }, required: ["a"], additionalProperties: false };
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], output_config: { effort: "low", format: { type: "json_schema", schema }, task_budget: { total: 1 } } } });
+  assert.deepEqual(calls.at(-1).body.output_config, { effort: "low", format: { type: "json_schema", schema } });
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], output_config: { effort: "ultra", format: { type: "text" } } } });
+  assert.equal(calls.at(-1).body.output_config, undefined, "invalid effort and non-schema format dropped");
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], output_config: "high" } });
+  assert.equal(calls.at(-1).body.output_config, undefined);
+});
+
+test("thinking: adaptive (with display) and between_tools pass through; other shapes are dropped", async () => {
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], thinking: { type: "adaptive", display: "summarized", budget_tokens: 5 } } });
+  assert.deepEqual(calls.at(-1).body.thinking, { type: "adaptive", display: "summarized" });
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], thinking: { type: "between_tools" } } });
+  assert.deepEqual(calls.at(-1).body.thinking, { type: "between_tools" });
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], thinking: { type: "enabled", budget_tokens: 2000 } } });
+  assert.equal(calls.at(-1).body.thinking, undefined);
+  await call({ body: { model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "x" }], thinking: { type: "disabled" } } });
+  assert.equal(calls.at(-1).body.thinking, undefined, "disabled is a 400 on Sonnet 5.5; never forwarded");
+});
+
+test("review kind is accepted and capped at 8000", async () => {
+  const res = await call({ headers: { "x-dw-kind": "review" }, body: { model: "claude-opus-5-5", max_tokens: 20000, messages: [{ role: "user", content: "x" }] } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls[0].body.max_tokens, 8000);
 });
 
 test("max_tokens under the cap passes through", async () => {
@@ -89,8 +122,8 @@ test("rejects bodies over 200 KB with 413", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("rate limit per IP per day by kind: case 12, results 12, turn 400, grade 15", async () => {
-  for (const [kind, limit] of [["case", 12], ["results", 12], ["grade", 15], ["turn", 400]]) {
+test("rate limit per IP per day by kind: case 60, results 60, review 60, grade 60, turn 2000", async () => {
+  for (const [kind, limit] of [["case", 60], ["results", 60], ["review", 60], ["grade", 60], ["turn", 2000]]) {
     for (let i = 0; i < limit; i++) {
       const r = await call({ headers: { "x-dw-kind": kind } });
       assert.equal(r.statusCode, 200, `${kind} ${i + 1} should pass`);
@@ -105,7 +138,7 @@ test("rate limit per IP per day by kind: case 12, results 12, turn 400, grade 15
 });
 
 test("client IP: x-vercel-forwarded-for, then x-real-ip, then x-forwarded-for", async () => {
-  for (let i = 0; i < 12; i++) await call({ headers: { "x-dw-kind": "case", "x-vercel-forwarded-for": "5.5.5.5", "x-real-ip": "6.6.6.6" } });
+  for (let i = 0; i < 60; i++) await call({ headers: { "x-dw-kind": "case", "x-vercel-forwarded-for": "5.5.5.5", "x-real-ip": "6.6.6.6" } });
   // same vercel IP, different spoofable x-forwarded-for → still blocked
   assert.equal((await call({ headers: { "x-dw-kind": "case", "x-vercel-forwarded-for": "5.5.5.5, 1.1.1.1", "x-forwarded-for": "7.7.7.7" } })).statusCode, 429);
   // x-real-ip used when the vercel header is absent
@@ -132,7 +165,7 @@ test("origin check: same host and no-origin pass; other sites 403; VERCEL_URL / 
 
 test("client disconnect before the response refunds the slot and aborts upstream", async () => {
   let signal;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 60; i++) {
     const req = Object.assign(new EventEmitter(), makeReq({ headers: { "x-dw-kind": "case" } }));
     const res = Object.assign(new EventEmitter(), makeRes(), { writableEnded: false });
     let release;
@@ -146,11 +179,11 @@ test("client disconnect before the response refunds the slot and aborts upstream
     assert.equal(res.statusCode, null, "nothing written to a gone client");
   }
   mockFetch();
-  assert.equal((await call({ headers: { "x-dw-kind": "case" } })).statusCode, 200, "all 12 slots were refunded");
+  assert.equal((await call({ headers: { "x-dw-kind": "case" } })).statusCode, 200, "all 60 slots were refunded");
 });
 
 test("BYOK bypasses the case limit and uses the user's key", async () => {
-  for (let i = 0; i < 12; i++) await call({ headers: { "x-dw-kind": "case" } });
+  for (let i = 0; i < 60; i++) await call({ headers: { "x-dw-kind": "case" } });
   assert.equal((await call({ headers: { "x-dw-kind": "case" } })).statusCode, 429);
   for (let i = 0; i < 20; i++) assert.equal((await call({ headers: { "x-dw-kind": "grade", "x-user-api-key": "user-key" } })).statusCode, 200);
   const r = await call({ headers: { "x-dw-kind": "case", "x-user-api-key": "user-key" } });
@@ -192,5 +225,5 @@ test("no server key and no BYOK returns 500", async () => {
 test("string body is parsed", async () => {
   const r = await call({ body: JSON.stringify({ model: "claude-sonnet-5-5", max_tokens: 9999, messages: [{ role: "user", content: "x" }] }) });
   assert.equal(r.statusCode, 200);
-  assert.equal(calls[0].body.max_tokens, 1500);
+  assert.equal(calls[0].body.max_tokens, 6000);
 });
