@@ -894,10 +894,12 @@
       startedAt: now(),
       physicality: assign({}, c.physicality),
       resulted: {},
+      pending: [],
       transport: null,
       receivingCalls: 0,
       accepted: false,
-      ctTechIn: false
+      ctTechIn: false,
+      ctTechAt: null
     };
     var v = vitalsAt(enc, 0);
     enc.vitalsHistory = [{ t: 0, vitals: v }];
@@ -1037,17 +1039,21 @@
   }
   function buildTurnPrompt(enc, items, text, vitals) {
     var c = enc.case;
-    // Only tests he has ordered (or orders now) are on the sheet he sees; the rest stays hidden.
+    // Only tests that have come back (or are ordered now) are on the sheet he sees; the rest stays hidden,
+    // and a test that is still pending is named but its value withheld.
+    var pend = {};
+    (enc.pending || []).forEach(function (p) { pend[p.label] = true; });
     var want = {};
-    Object.keys(enc.resulted || {}).forEach(function (l) { want[l] = true; });
+    Object.keys(enc.resulted || {}).forEach(function (l) { if (!pend[l]) want[l] = true; });
     items.forEach(function (i) { want[i.label] = true; });
     var sheet = {};
     Object.keys(c.results || {}).forEach(function (l) { if (want[l] && c.results[l] !== FALLBACK) sheet[l] = c.results[l]; });
     var lines = [];
     lines.push("PHYSICALITY NOW: " + JSON.stringify(enc.physicality || c.physicality));
     lines.push("SIM MINUTE: T+" + enc.simMin + " · CURRENT VITALS: " + fmtVitals(vitals));
-    lines.push("RESULTS SHEET (time-0 values for tests already ordered or ordered now; no other test has been done): " + JSON.stringify(sheet));
-    lines.push("ALREADY RESULTED (a new order for these is a repeat): " + JSON.stringify(Object.keys(enc.resulted || {})));
+    lines.push("RESULTS SHEET (time-0 values for tests that have come back or are ordered now; no other test has been done): " + JSON.stringify(sheet));
+    lines.push("PENDING (ordered, not back yet — do not report or guess their values): " + JSON.stringify((enc.pending || []).map(function (p) { return p.label + " back ~T+" + p.readyAt; })));
+    lines.push("ALREADY RESULTED (a new order for these is a repeat): " + JSON.stringify(Object.keys(enc.resulted || {}).filter(function (l) { return !pend[l]; })));
     lines.push("APPLIED SO FAR: " + JSON.stringify((enc.applied || []).map(function (a) { return { id: a.id, atMin: a.atMin }; })));
     if (enc.transport) lines.push("TRANSPORT: " + JSON.stringify(enc.transport));
     if (enc.accepted) lines.push("RECEIVING FACILITY: accepted.");
@@ -1081,10 +1087,12 @@
     var modelItems = [];
     var applied = (enc.applied || []).slice();
     var resulted = assign({}, enc.resulted);
+    var pending = (enc.pending || []).slice();
     var transport = enc.transport ? assign({}, enc.transport) : null;
     var receivingCalls = enc.receivingCalls || 0;
     var accepted = !!enc.accepted;
     var ctTechIn = !!enc.ctTechIn;
+    var ctTechAt = enc.ctTechAt == null ? null : enc.ctTechAt;
     var filled = {};
     (c._filled || []).forEach(function (l) { filled[l] = true; });
     var ivs = c.interventions || [];
@@ -1118,17 +1126,33 @@
       }
       if (g === "Exam" || g === "Labs" || g === "Imaging") {
         var isCT = g === "Imaging" && /^CT/.test(l);
-        if (isCT && !cond.ctAvailable && !ctTechIn) {
-          if (!cond.ctOnCall) { eventEntry("ct", "CT unavailable — no tech tonight", t0); return; }
-          eventEntry("ct", "CT tech called back — ~45 min", t0);
-          ctTechIn = true;
-          cost = 45 + T.ct;
+        if (isCT && !cond.ctAvailable) {
+          if (!ctTechIn) {
+            if (!cond.ctOnCall) { eventEntry("ct", "CT unavailable — no tech tonight", t0); return; }
+            eventEntry("ct", "CT tech called back — ~45 min", t0);
+            ctTechIn = true;
+            ctTechAt = t0 + 45;
+          }
+          // no scan before the tech is in, whichever order it was placed in
+          cost = Math.max(ctTechAt, t0) + T.ct - t0;
         }
         var repeat = g !== "Exam" && resulted[l];
+        // Labs and send-out imaging are sent now and come back later: the clock moves by the time it takes
+        // to order, and the result lands when the clock passes its ready minute (a later order, or a Time chip).
+        // Bedside tests and the exam answer now. A repeat or a missing result still goes to the model and
+        // costs its minutes up front.
+        var deferred = g === "Labs" || (g === "Imaging" && !BEDSIDE[l]);
         if (!repeat && c.results && c.results[l] && !filled[l]) {
-          entries.push({ k: "clinical", t: l + ": " + c.results[l], mono: g !== "Exam", atMin: t0 + cost });
-          if (g !== "Exam") resulted[l] = t0 + cost;
-          costs.push({ min: cost, label: l });
+          if (deferred) {
+            pending.push({ group: g, label: l, readyAt: t0 + cost, text: l + ": " + c.results[l] });
+            entries.push({ k: "sent", t: l + " sent · back about T+" + (t0 + cost), atMin: t0 });
+            resulted[l] = t0 + cost;
+            costs.push({ min: T.history, label: l + " sent" });
+          } else {
+            entries.push({ k: "clinical", t: l + ": " + c.results[l], mono: g !== "Exam", atMin: t0 + cost });
+            if (g !== "Exam") resulted[l] = t0 + cost;
+            costs.push({ min: cost, label: l });
+          }
         } else {
           modelItems.push({ group: g, label: l, repeat: !!repeat, cost: cost });
           if (g !== "Exam") resulted[l] = t0 + cost;
@@ -1204,7 +1228,7 @@
     var physicality = enc.physicality || c.physicality;
     var modelPromise = Promise.resolve(null);
     if (needModel) {
-      var encForPrompt = assign({}, enc, { applied: applied, resulted: enc.resulted, transport: transport, accepted: accepted, log: (enc.log || []).concat(entries) });
+      var encForPrompt = assign({}, enc, { applied: applied, resulted: enc.resulted, pending: pending, transport: transport, accepted: accepted, log: (enc.log || []).concat(entries) });
       var p = buildTurnPrompt(encForPrompt, modelItems, text, vBefore);
       modelPromise = callJSON("turn", p.system, p.user, CONFIG.maxTokens.turn, function (r) {
         if (!r || typeof r !== "object") throw invalid("turn not an object");
@@ -1236,9 +1260,16 @@
       costs.forEach(function (x) { if (x.min > maxC.min) maxC = x; });
       var t1 = t0 + maxC.min;
 
+      // Results whose ready minute the clock has now passed land on the log at that minute.
+      var still = [];
+      pending.slice().sort(function (a, b) { return a.readyAt - b.readyAt; }).forEach(function (p) {
+        if (p.readyAt <= t1) entries.push({ k: "clinical", t: p.text, mono: true, atMin: p.readyAt });
+        else still.push(p);
+      });
+
       var next = assign({}, enc, {
-        simMin: t1, applied: applied, resulted: resulted, transport: transport,
-        receivingCalls: receivingCalls, accepted: accepted, ctTechIn: ctTechIn, physicality: physicality
+        simMin: t1, applied: applied, resulted: resulted, pending: still, transport: transport,
+        receivingCalls: receivingCalls, accepted: accepted, ctTechIn: ctTechIn, ctTechAt: ctTechAt, physicality: physicality
       });
       var vAfter = vitalsAt(next, t1);
       entries.forEach(function (e) { if (e.recheck) { e.t = "Recheck: " + fmtVitals(vitalsAt(next, e.atMin)); delete e.recheck; } });
@@ -1341,6 +1372,7 @@
       return { id: a.id, label: iv ? iv.label : a.id, atMin: a.atMin };
     })));
     out.push("FINAL SIM MINUTE: T+" + enc.simMin + " · VITALS: " + fmtVitals(vitalsAt(enc, enc.simMin)));
+    if (enc.pending && enc.pending.length) out.push("STILL PENDING WHEN HE COMMITTED (ordered, never came back): " + JSON.stringify(enc.pending.map(function (p) { return p.label + " ~T+" + p.readyAt; })));
     if (enc.transport) out.push("TRANSPORT: " + JSON.stringify(enc.transport));
     out.push("RECEIVING FACILITY CALLS: " + (enc.receivingCalls || 0) + (enc.accepted ? " (accepted)" : " (not accepted)"));
     return out.join("\n");

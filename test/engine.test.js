@@ -242,7 +242,7 @@ test("Time chips: recheck and observe move the clock with no model call and log 
 test("events are stamped at the crossing minute, not the end of the batch", async function () {
   reset();
   var enc = readyEnc(vcase()); // SBP 100→70 over 30 min: 90 at T+10, below 90 from T+15
-  var r = await DW.act(enc, { chips: [{ group: "Labs", label: "CBC+BMP" }] }); // +45
+  var r = await DW.act(enc, { chips: [{ group: "Time", label: "Observe 30 min" }, { group: "Time", label: "Observe 15 min" }] }); // +30 (max of the batch)
   var bp = r.events.filter(function (e) { return e.vital === "BP"; })[0];
   assert(bp, "BP event fires");
   assert.strictEqual(bp.atMin, 15, "stamped at the 5-minute step where it crossed, not 45");
@@ -250,7 +250,7 @@ test("events are stamped at the crossing minute, not the end of the batch", asyn
   assert.strictEqual(r.events.filter(function (e) { return e.vital === "BP"; }).length, 1, "fires once");
   // a slow GCS slide that never drops 2 within a 5-minute step still fires once at the end
   var slow = [{ t: 0, HR: 90, SBP: 120, DBP: 70, RR: 16, SpO2: 98, Temp: 98.6, GCS: 15 }, { t: 60, HR: 90, SBP: 120, DBP: 70, RR: 16, SpO2: 98, Temp: 98.6, GCS: 11 }];
-  var r2 = await DW.act(readyEnc(vcase([], slow)), { chips: [{ group: "Labs", label: "CBC+BMP" }] });
+  var r2 = await DW.act(readyEnc(vcase([], slow)), { chips: [{ group: "Time", label: "Observe 30 min" }] });
   var g = r2.events.filter(function (e) { return e.vital === "GCS"; });
   assert.strictEqual(g.length, 1, JSON.stringify(r2.events));
 });
@@ -357,24 +357,40 @@ test("act requires locked gut; never mutates enc", async function () {
   assert(DW.loadActive().simMin === r.enc.simMin, "act saved active");
 });
 
-test("clock advances by MAX cost in a batch; local results need no model call", async function () {
+test("labs are sent and come back later; bedside tests answer now; the clock moves by what he does", async function () {
   reset();
   var enc = readyEnc(vcase());
   var r = await DW.act(enc, { chips: [{ group: "Labs", label: "CBC+BMP" }, { group: "Imaging", label: "ECG" }, { group: "History", label: "Allergies?" }] });
-  assert.strictEqual(r.enc.simMin, 45);
+  assert.strictEqual(r.enc.simMin, 5, "ECG (5) is the slowest thing that answers now; the CBC is only sent");
   assert.strictEqual(calls.length, 0);
-  assert(r.entries.some(function (e) { return e.k === "time" && /\+45 min/.test(e.t); }));
+  assert.deepStrictEqual(r.enc.pending.map(function (p) { return [p.label, p.readyAt]; }), [["CBC+BMP", 45]]);
+  assert(r.entries.some(function (e) { return e.k === "sent" && /CBC\+BMP sent · back about T\+45/.test(e.t) && e.atMin === 0; }));
+  assert(r.entries.some(function (e) { return /^ECG:/.test(e.t) && e.atMin === 5; }));
+  assert(!r.entries.some(function (e) { return /^CBC\+BMP:/.test(e.t); }), "not back yet");
+  assert(r.entries.some(function (e) { return e.k === "time" && /\+5 min/.test(e.t); }));
   assert(r.entries.every(function (e) { return typeof e.atMin === "number"; }));
   assert(r.entries[0].k === "doc" && r.entries[0].vitals, "doc entry carries vitals snapshot");
+  var r2 = await DW.act(r.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  assert.strictEqual(r2.enc.simMin, 35);
+  assert.strictEqual(r2.enc.pending.length, 1, "still cooking at T+35");
+  var r3 = await DW.act(r2.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] });
+  assert.strictEqual(r3.enc.simMin, 50);
+  assert.strictEqual(r3.enc.pending.length, 0);
+  var back = r3.entries.filter(function (e) { return /^CBC\+BMP:/.test(e.t); })[0];
+  assert(back && back.atMin === 45 && back.mono, "lands at its ready minute");
+  assert(DW.loadActive().pending.length === 0 && DW.loadActive().simMin === 50);
 });
 
-test("repeat lab goes to the model; first-time lab served locally", async function () {
+test("repeat lab goes to the model; first-time lab served locally once it is back", async function () {
   reset();
   var enc = readyEnc(vcase());
   var r1 = await DW.act(enc, { chips: [{ group: "Labs", label: "Lactate" }] });
   assert.strictEqual(calls.length, 0);
-  assert(r1.entries.some(function (e) { return /Lactate 4.6/.test(e.t); }));
-  await DW.act(r1.enc, { chips: [{ group: "Labs", label: "Lactate" }] });
+  assert.strictEqual(r1.enc.simMin, 2, "ordering costs a couple of minutes");
+  assert(!r1.entries.some(function (e) { return /Lactate 4.6/.test(e.t); }));
+  var r2 = await DW.act(r1.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] });
+  assert(r2.entries.some(function (e) { return /Lactate 4.6/.test(e.t) && e.atMin === 15; }));
+  await DW.act(r2.enc, { chips: [{ group: "Labs", label: "Lactate" }] });
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].kind, "turn");
   assert(/REPEAT/.test(calls[0].body.messages[0].content));
@@ -422,7 +438,8 @@ test("transfer requests set ETA and do not move the clock", async function () {
   var r3 = await DW.act(readyEnc(c3), { chips: [{ group: "Transfer", label: "Request flight" }] });
   assert.strictEqual(r3.enc.transport.etaMin, C.FACILITY.timesMin.flightTransfer);
   assert.strictEqual(r3.enc.simMin, 0);
-  var r4 = await DW.act(r3.enc, { chips: [{ group: "Labs", label: "CBC+BMP" }] });
+  var r4a = await DW.act(r3.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  var r4 = await DW.act(r4a.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] });
   assert(r4.events.some(function (e) { return e.kind === "transport"; }), "crew arrives once clock passes ETA");
   assert.strictEqual(calls.length, 0);
 });
@@ -445,35 +462,42 @@ test("diversion: first call declined, second accepted at +15", async function ()
   assert.strictEqual(r4.enc.accepted, true);
 });
 
-test("CT down: on-call tech callback event and +45+CT; not on call → unavailable", async function () {
+test("CT down: on-call tech callback, scans wait for the tech; not on call → unavailable", async function () {
   reset();
+  var ct = C.FACILITY.timesMin.ct;
   var c = vcase(); c.seed.conditions = cond({ hour: 2, ctAvailable: false, ctOnCall: true });
   var r = await DW.act(readyEnc(c), { chips: [{ group: "Imaging", label: "CT head" }] });
   assert(r.events.some(function (e) { return e.text === "CT tech called back — ~45 min"; }));
-  assert.strictEqual(r.enc.simMin, 45 + C.FACILITY.timesMin.ct);
-  assert(r.entries.some(function (e) { return /^CT head:/.test(e.t); }));
+  assert.strictEqual(r.enc.simMin, 2);
+  assert.deepStrictEqual(r.enc.pending.map(function (p) { return [p.label, p.readyAt]; }), [["CT head", 45 + ct]]);
   var r2 = await DW.act(r.enc, { chips: [{ group: "Imaging", label: "CT abd/pelvis" }] });
-  assert.strictEqual(r2.enc.simMin - r.enc.simMin, C.FACILITY.timesMin.ct, "tech already in");
+  assert.strictEqual(r2.enc.pending[1].readyAt, 45 + ct, "a second scan cannot happen before the tech is in");
+  assert(!r2.events.some(function (e) { return /called back/.test(e.text); }), "tech called once");
+  var r3 = await DW.act(r2.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  var r3b = await DW.act(r3.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  var r4 = await DW.act(r3b.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  assert(r4.entries.some(function (e) { return /^CT head:/.test(e.t) && e.atMin === 45 + ct; }));
   var c2 = vcase(); c2.seed.conditions = cond({ hour: 2, ctAvailable: false, ctOnCall: false });
-  var r3 = await DW.act(readyEnc(c2), { chips: [{ group: "Imaging", label: "CT head" }] });
-  assert(r3.events.some(function (e) { return /CT unavailable/.test(e.text); }));
-  assert(!r3.entries.some(function (e) { return /^CT head:/.test(e.t); }));
-  assert.strictEqual(r3.enc.simMin, 0);
+  var r5 = await DW.act(readyEnc(c2), { chips: [{ group: "Imaging", label: "CT head" }] });
+  assert(r5.events.some(function (e) { return /CT unavailable/.test(e.text); }));
+  assert(!r5.entries.some(function (e) { return /^CT head:/.test(e.t); }) && r5.enc.pending.length === 0);
+  assert.strictEqual(r5.enc.simMin, 0);
 });
 
 test("events: adult crossing SBP<90 fires; infant HR 160 does not alarm", async function () {
   reset();
   var enc = readyEnc(vcase()); // SBP 100 → 70 over 30 min
-  var r = await DW.act(enc, { chips: [{ group: "Labs", label: "CBC+BMP" }] }); // +45
+  var r = await DW.act(enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });
   assert(r.events.some(function (e) { return e.kind === "deteriorating" && e.vital === "BP"; }), JSON.stringify(r.events));
-  var r2 = await DW.act(r.enc, { chips: [{ group: "Labs", label: "UA" }] });
+  var r2 = await DW.act(r.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] });
   assert(!r2.events.some(function (e) { return e.vital === "BP"; }), "only on new crossing");
 
   var inf = makeCase({ seed: 12, ageBand: "infant", conditions: cond() }, function (raw) {
     raw.vitals0 = { HR: 150, SBP: 85, DBP: 50, RR: 40, SpO2: 97, Temp: 99, GCS: 15 };
     raw.trajectory = [{ t: 0, HR: 150, SBP: 85, DBP: 50, RR: 40, SpO2: 97, Temp: 99, GCS: 15 }, { t: 45, HR: 160, SBP: 85, DBP: 50, RR: 50, SpO2: 97, Temp: 99, GCS: 15 }];
   });
-  var ri = await DW.act(readyEnc(inf), { chips: [{ group: "Labs", label: "CBC+BMP" }] });
+  var ri0 = await DW.act(readyEnc(inf), { chips: [{ group: "Time", label: "Observe 30 min" }] });
+  var ri = await DW.act(ri0.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] });
   assert.strictEqual(ri.enc.vitalsHistory[ri.enc.vitalsHistory.length - 1].vitals.HR, 160);
   assert.strictEqual(ri.events.length, 0, JSON.stringify(ri.events));
   // the same HR in an adult does alarm
@@ -488,15 +512,15 @@ test("critical actions done/late/missed computed in code; grader cannot override
   reset();
   var c = makeCase({ seed: 21, conditions: cond(), bucket: "serious" });
   var enc = readyEnc(c);
-  var r = await DW.act(enc, { chips: [{ group: "Stabilize", label: "IV access + fluids" }] }); // fluids at 0 → done
-  var r2 = await DW.act(r.enc, { chips: [{ group: "Labs", label: "CBC+BMP" }] });          // +45
-  var r3 = await DW.act(r2.enc, { chips: [{ group: "Labs", label: "UA" }] });              // +45 → 95
-  var r4 = await DW.act(r3.enc, { chips: [{ group: "Stabilize", label: "Broad-spectrum antibiotics" }] }); // abx at 95 → late
+  var r = await DW.act(enc, { chips: [{ group: "Stabilize", label: "IV access + fluids" }] }); // fluids at 0 → done, +5
+  var r2 = await DW.act(r.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });   // → 35
+  var r3 = await DW.act(r2.enc, { chips: [{ group: "Time", label: "Observe 30 min" }] });  // → 65
+  var r4 = await DW.act(r3.enc, { chips: [{ group: "Stabilize", label: "Broad-spectrum antibiotics" }] }); // abx at 65 → late (window 60)
   var crit = DW._.computeCritical(r4.enc);
   var byId = {}; crit.computed.forEach(function (x) { byId[x.id] = x; });
   assert.strictEqual(byId.fluids.status, "done");
   assert.strictEqual(byId.abx.status, "late");
-  assert.strictEqual(byId.abx.atMin, 95); // fluids chip itself costs 5 min
+  assert.strictEqual(byId.abx.atMin, 65);
   assert.deepStrictEqual(crit.toJudge.map(function (x) { return x.id; }), ["call_receiving"]);
   var missed = DW._.computeCritical(readyEnc(c)).computed;
   assert(missed.every(function (x) { return x.status === "missed"; }));
@@ -512,7 +536,7 @@ test("critical actions done/late/missed computed in code; grader cannot override
   assert.strictEqual(gb.call_receiving.status, "done");
   assert.strictEqual(g.criticalActions.length, 3);
   var prompt = calls[calls.length - 1].body.messages[0].content;
-  assert(/ANSWER KEY/.test(prompt) && /LOCKED DOORWAY GUT/.test(prompt) && /FINAL ANSWERS/.test(prompt) && /\[T\+95\]/.test(prompt) && /vitals: HR/.test(prompt));
+  assert(/ANSWER KEY/.test(prompt) && /LOCKED DOORWAY GUT/.test(prompt) && /FINAL ANSWERS/.test(prompt) && /\[T\+65\]/.test(prompt) && /vitals: HR/.test(prompt));
 });
 
 test("transfer chips count as the intervention the case tied to them", async function () {
@@ -994,25 +1018,30 @@ test("turn prompt: only ordered results reach the model; per-case block is cache
   c.results["Lactate"] = "LACTATE-VISIBLE-4.6";
   c.results["CT head"] = "CT-SECRET-BLEED";
   var enc = readyEnc(c);
-  var r1 = await DW.act(enc, { chips: [{ group: "Labs", label: "Lactate" }] }); // served locally
+  var r1 = await DW.act(enc, { chips: [{ group: "Labs", label: "Lactate" }] }); // sent, back at T+15
   assert.strictEqual(calls.length, 0);
-  var r2 = await DW.act(r1.enc, { text: "what do you make of the lactate?" });
-  var body = JSON.stringify(calls[0].body);
-  assert(body.indexOf("LACTATE-VISIBLE-4.6") >= 0, "ordered result is on the sheet");
+  var r1b = await DW.act(r1.enc, { text: "what do you make of the lactate?" });
+  var body0 = JSON.stringify(calls[0].body);
+  assert(body0.indexOf("LACTATE-VISIBLE-4.6") < 0, "a pending result is withheld from the model");
+  assert(/PENDING.*Lactate back ~T\+15/.test(calls[0].body.messages[0].content), "but named as pending");
+  var r1c = await DW.act(r1b.enc, { chips: [{ group: "Time", label: "Observe 15 min" }] }); // delivered
+  var r2 = await DW.act(r1c.enc, { text: "what do you make of the lactate now?" });
+  var body = JSON.stringify(calls[1].body);
+  assert(body.indexOf("LACTATE-VISIBLE-4.6") >= 0, "a result that is back is on the sheet");
   assert(body.indexOf("LIPASE-SECRET-77") < 0 && body.indexOf("CT-SECRET-BLEED") < 0, "unordered results are not");
   assert(body.indexOf("answerKey") < 0 && body.indexOf("teachingPoint") < 0);
-  var sys = calls[0].body.system;
+  var sys = calls[1].body.system;
   assert(Array.isArray(sys) && sys.length === 2 && /PERSONA/.test(sys[1].text) && /HISTORY SHEET/.test(sys[1].text), "persona + history in the per-case block");
   assert.deepStrictEqual(sys[1].cache_control, { type: "ephemeral" });
   assert.strictEqual(sys[0].cache_control, undefined);
-  assert(/LOG SO FAR/.test(calls[0].body.messages[0].content) && /CURRENT VITALS/.test(calls[0].body.messages[0].content));
-  // a repeat of an ordered test still gets its time-0 value
+  assert(/LOG SO FAR/.test(calls[1].body.messages[0].content) && /CURRENT VITALS/.test(calls[1].body.messages[0].content));
+  // a repeat of a resulted test still gets its time-0 value
   var r3 = await DW.act(r2.enc, { chips: [{ group: "Labs", label: "Lactate" }] });
-  assert(JSON.stringify(calls[1].body).indexOf("LACTATE-VISIBLE-4.6") >= 0 && /REPEAT/.test(calls[1].body.messages[0].content));
+  assert(JSON.stringify(calls[2].body).indexOf("LACTATE-VISIBLE-4.6") >= 0 && /REPEAT/.test(calls[2].body.messages[0].content));
   // a label missing from the sheet is ordered through the model without a placeholder value
   var c4 = makeCase({ seed: 103, conditions: cond() }, function (raw) { delete raw.results["Troponin"]; });
   await DW.act(readyEnc(c4), { chips: [{ group: "Labs", label: "Troponin" }] });
-  assert(JSON.stringify(calls[2].body).indexOf(DW._.FALLBACK) < 0);
+  assert(JSON.stringify(calls[3].body).indexOf(DW._.FALLBACK) < 0);
   assert(r3.enc);
 });
 

@@ -295,6 +295,8 @@ async function checkTimeline(page, simMin, where) {
     if (a3.caseId !== a2.caseId || a3.logLen !== a2.logLen) throw new Error("resume restored a different encounter");
     await shot(page, "12-resumed");
     await pickChips(page, "Labs", ["Lactate"]);
+    await sendAndWait(page, /Lactate sent/);
+    await pickChips(page, "Time", ["Observe 15 min"]);
     await sendAndWait(page, /Lactate:/);
     const a4 = await active(page);
     await commitAndCheckDebrief(page, a4.trueDx, a4.simMin, null);

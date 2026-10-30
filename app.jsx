@@ -343,6 +343,7 @@ const BUBBLE={
 };
 const LogEntry=({e,name,showLabel=true})=>{
   if(e.k==="time")return<div className="mono bubble" style={{fontSize:12,color:C.dim,letterSpacing:"0.04em",padding:"8px 0 2px",borderTop:`1px solid ${C.border}`}}>{e.t}</div>;
+  if(e.k==="sent")return<div className="mono bubble" style={{fontSize:12,color:C.faint,padding:"5px 0"}}>{e.t}</div>;
   if(e.k==="event")return(<div className="bubble" role="status" style={{padding:"8px 12px",background:"rgba(139,0,0,0.22)",border:`1px solid ${C.red}`,borderLeft:`3px solid ${C.red}`,borderRadius:4}}>
     <Label color={C.redText} style={{letterSpacing:"0.14em"}}>Event</Label>
     <div style={{fontSize:15,lineHeight:1.45,marginTop:2}}>{e.t}</div></div>);
@@ -846,6 +847,7 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
         <Btn kind={crewHere?"lock":"line"} onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 10px",fontSize:12,flexShrink:0}}>Commit</Btn>
       </div>
       <div style={{padding:"0 4px 6px"}}><ConditionsStrip cond={seed.conditions} compact/></div>
+      {(enc.pending||[]).length>0&&<div className="mono" aria-label="Results pending" style={{fontSize:12,color:C.amber,padding:"0 4px 6px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Pending · {enc.pending.map(p=>`${p.label} ~T+${p.readyAt}`).join(" · ")}</div>}
       <VitalTiles vitals={vitals} prev={prev} band={seed.ageBand} onTap={setTrend} flash={flash} reduced={reduced}/>
       {saveFail&&<div role="status" style={{marginTop:6,padding:"8px 12px",fontSize:14,lineHeight:1.4,background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:4,display:"flex",alignItems:"center",gap:8}}>
         <span style={{flex:1}}>Couldn't save — export your data.</span>

@@ -115,6 +115,7 @@ function stubDerek(enc, turn) {
     { chips: [{ group: "History", label: "When did this start?" }, { group: "Exam", label: "General appearance" }], text: "" },
     { chips: [{ group: "Labs", label: "Lactate" }, { group: "Labs", label: "CBC+BMP" }, { group: "Imaging", label: "ECG" }], text: "" },
     { chips: [{ group: "Stabilize", label: "IV access + fluids" }], text: "How are you feeling now?" },
+    { chips: [{ group: "Time", label: "Observe 30 min" }, { group: "Time", label: "Recheck vitals" }], text: "" },
     { chips: [{ group: "Transfer", label: "Call receiving facility" }, { group: "Transfer", label: "Request ground ALS" }], text: "" },
   ];
   if (turn <= plan.length) return { note: "scripted", commit: false, ddx: [], confidence: 0, finalDispo: "Transfer", transferChecklist: tc(false), plan: "", ...plan[turn - 1] };
@@ -219,6 +220,7 @@ async function runCase(i) {
         "YOUR LOCKED READ: " + (enc.gut.sick ? "sick" : "not sick") + ", ESI " + enc.gut.acuity + ", " + enc.gut.gutDispo,
         "DONE SO FAR: " + (enc.applied.length ? enc.applied.map((a) => { const iv = c.interventions.find((x) => x.id === a.id); return (iv ? iv.label : a.id) + " @T+" + a.atMin; }).join("; ") : "nothing yet"),
         enc.transport ? "TRANSPORT: " + enc.transport.mode + " " + enc.transport.status + (enc.transport.etaMin != null ? " ETA T+" + enc.transport.etaMin : "") : "TRANSPORT: none requested",
+        (enc.pending || []).length ? "RESULTS PENDING (not back yet; they land when the clock passes their minute — use Time chips to wait): " + enc.pending.map((p) => `${p.label} ~T+${p.readyAt}`).join("; ") : "",
         "RECEIVING FACILITY: " + (enc.accepted ? "accepted" : enc.receivingCalls ? "declined so far" : "not called"),
         events.length ? "EVENTS LAST TURN: " + events.map((e) => e.text).join(" · ") : "",
         unknownChips.length ? "IGNORED (not on the menu): " + unknownChips.join(", ") + ". Use exact labels or free text." : "",
