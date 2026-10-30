@@ -28,7 +28,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 button:disabled{cursor:default}
 button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid ${C.amber};outline-offset:2px}
 input,textarea{font-family:inherit}
-input[type=range]{accent-color:${C.red};width:100%;height:44px}
+input[type=range]{accent-color:${C.amber};width:100%;height:44px}
 .scrollx::-webkit-scrollbar{display:none}.scrollx{scrollbar-width:none}
 .display{font-family:${DISPLAY};font-style:normal;font-weight:400}
 .display-i{font-family:${DISPLAY};font-style:italic;font-weight:400}
@@ -48,6 +48,9 @@ details>summary{list-style:none;cursor:pointer}details>summary::-webkit-details-
 .sheet-up{animation:sheet-up 180ms ${EASE} both}
 .banner-in{animation:banner-in 220ms ${EASE} both}
 .flash-once{animation:flash-once 900ms ${EASE} 1}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.rise{animation:rise 420ms ${EASE} both}
+.door-close{transition:transform 600ms ${EASE},opacity 600ms ${EASE}}
 .pulse-slow{animation:pulse-slow 2.6s ease-in-out infinite}
 .chip:active{transform:scale(0.96)}
 .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -123,8 +126,10 @@ const historyOf=enc=>{const h=enc&&enc.vitalsHistory;if(h&&h.length)return h;con
 // ── SHARED UI ───────────────────────────────────────────────────────────────
 const Label=({children,color=C.faint,style})=><div className="mono" style={{fontSize:12,letterSpacing:"0.18em",textTransform:"uppercase",color,...style}}>{children}</div>;
 const Card=({children,style,accent})=><div style={{padding:14,background:C.bg2,border:`1px solid ${C.border}`,borderLeft:accent?`2px solid ${accent}`:undefined,borderRadius:4,...style}}>{children}</div>;
+// Red is for a patient getting worse or a wrong call. Primary actions are bone; only Lock and Submit keep the red fill.
 const BTN={
-  primary:{background:C.red,color:C.text,border:`1px solid ${C.red}`},
+  primary:{background:C.text,color:C.bg,border:`1px solid ${C.text}`},
+  lock:{background:C.red,color:C.text,border:`1px solid ${C.redText}`},
   light:{background:C.text,color:C.bg,border:`1px solid ${C.text}`},
   line:{background:"transparent",color:C.text,border:`1px solid ${C.border}`},
   ghost:{background:"transparent",color:C.dim,border:"1px solid transparent"}
@@ -146,11 +151,11 @@ const Icon=({name,size=18,color="currentColor",style})=><svg aria-hidden viewBox
 const SectionTitle=({children,style,size=18,color=C.text})=><div style={{fontSize:size,fontWeight:600,letterSpacing:"-0.01em",lineHeight:1.25,color,...style}}>{children}</div>;
 
 // Choice grid: options = [{v,label,sub?}]
-const Choice=({options,value,onChange,cols,activeColor=C.red,activeText=C.text,activeBorder,big,label})=>(
+const Choice=({options,value,onChange,cols,activeColor=C.text,activeText=C.bg,activeBorder,big,label,fontSize})=>(
   <div role="radiogroup" aria-label={label} style={{display:"grid",gridTemplateColumns:`repeat(${cols||options.length},1fr)`,gap:6}}>
     {options.map(o=>{const on=value===o.v;return(
-      <button key={String(o.v)} role="radio" aria-checked={on} aria-label={o.sub?`${o.label} ${o.sub}`:undefined} className="chip" onClick={()=>{onChange(o.v);haptic(8)}}
-        style={{minHeight:big?64:48,padding:"6px 4px",borderRadius:4,background:on?activeColor:C.bg3,color:on?activeText:C.dim,border:`1px solid ${on?(activeBorder||activeColor):C.border}`,fontFamily:MONO,fontSize:big?15:13,letterSpacing:"0.06em",fontWeight:on?600:500,lineHeight:1.2}}>
+      <button key={String(o.v)} role="radio" aria-checked={on} aria-label={o.aria||(o.sub?`${o.label} ${o.sub}`:undefined)} className="chip" onClick={()=>{onChange(o.v);haptic(8)}}
+        style={{minHeight:big?64:48,padding:"6px 4px",borderRadius:4,background:on?activeColor:C.bg3,color:on?activeText:C.dim,border:`1px solid ${on?(activeBorder||activeColor):C.border}`,fontFamily:MONO,fontSize:fontSize||(big?15:13),letterSpacing:"0.06em",fontWeight:on?600:500,lineHeight:1.2}}>
         {o.label}{o.sub&&<div style={{fontSize:12,opacity:0.8,fontWeight:400,marginTop:3,letterSpacing:"0.02em",textTransform:"lowercase"}}>{o.sub}</div>}
       </button>)})}
   </div>);
@@ -202,7 +207,7 @@ const conditionParts=cond=>{
 const ConditionsStrip=({cond,compact})=>{
   const parts=conditionParts(cond);if(!parts.length)return null;
   return(<div className="mono" aria-label="Conditions" style={{fontSize:12,color:C.dim,letterSpacing:"0.04em",lineHeight:1.6,whiteSpace:compact?"nowrap":"normal",overflow:compact?"hidden":"visible",textOverflow:"ellipsis"}}>
-    {parts.map((x,i)=><span key={i}>{i>0&&<span style={{color:C.faint}}> · </span>}<span style={{color:x.bad?C.redText:C.dim}}>{x.t}</span></span>)}
+    {parts.map((x,i)=><span key={i}>{i>0&&<span style={{color:C.faint}}> · </span>}<span style={{color:x.bad?C.amber:C.dim}}>{x.t}</span></span>)}
   </div>);
 };
 
@@ -215,33 +220,42 @@ const scleraCol=j=>{const b=[245,240,232];return j<=0?rgb(b):rgb(lerpRGB(b,[250,
 const lipCol=(base,c)=>{const dl=[Math.max(60,base[0]-60),Math.max(40,base[1]-65),Math.max(50,base[2]-50)];return c<=0?rgb(dl):rgb(lerpRGB(dl,[78,70,130],Math.min(1,c*0.28)))};
 const nailCol=c=>c<=0?"rgb(220,180,170)":rgb(lerpRGB([220,180,170],[70,80,140],Math.min(1,c*0.32)));
 
+// A posture silhouette, no face: the shape in the doorway. Five outlines (upright, slumped, tripod,
+// fetal, supine) filled by the skin/pallor engine; cyanosis and jaundice are washes at the edges,
+// diaphoresis a sheen; the only motion is breathing at the patient's rate. A face can lie about
+// affect; a shape reads posture, which is what a doorway glance gives.
+const SIL={
+  upright:{head:[120,74,34],body:"M104 112h32l4 16c30 10 48 34 52 64v48H48v-48c4-30 22-54 52-64l4-16z"},
+  slumped:{head:[112,98,32],body:"M96 132h34l6 14c28 12 42 32 44 56v38H56v-44c2-26 16-46 38-56l2-8z"},
+  tripod:{head:[100,98,30],body:"M86 130h30l8 12c26 12 40 30 44 54v44H60v-44c2-26 12-46 28-58l-2-8z",arms:"M78 186L64 252M162 186L178 252"},
+  fetal:{head:[70,160,28],body:"M94 140c34-16 76-10 100 14 16 16 20 40 12 60-8 18-28 24-48 18-14-4-22-14-26-26-10 8-24 10-36 4-12-8-16-24-10-36 2-12 4-24 8-34z"},
+  supine:{head:[72,150,28],body:"M100 134h128c10 0 16 8 16 18v30c0 8-6 14-14 14H98c-8 0-12-6-12-14v-30c0-10 6-18 14-18z"}
+};
 const Avatar=({phys,still})=>{
   const gid=React.useId().replace(/:/g,"");
   if(!phys)return null;
-  const{fitz=3,hair="#3a2820",rrRate=16,pallor=0,diaphoresis=0,cyanosis=0,jaundice=0,guarding=0,eyeState="open",positioning="supine",distressLevel=0,age=40,habitus="average"}=phys;
-  const fz=clamp(Math.round(fitz),1,6);const baseRgb=FITZ_RGB[fz-1];
-  const sk=rgb(applyPallor(baseRgb,pallor));const sclera=scleraCol(jaundice);const lip=lipCol(baseRgb,cyanosis);const nail=nailCol(cyanosis);
-  const breath=`${(60/Math.max(8,rrRate)).toFixed(2)}s`;const tilt=positioning==="tripod"?-8:positioning==="fetal"?5:0;
-  const ey=eyeState==="closed"?0.5:eyeState==="half"?1.5:3;
-  const hColor=age>65?"#9a9288":age>55?"#5a4a3d":hair;
-  const shExt=habitus==="cachectic"?48:habitus==="obese"?68:55;const nkW=habitus==="cachectic"?22:habitus==="obese"?42:30;
-  return(<svg viewBox="0 0 240 280" role="img" aria-label="Patient figure" style={{width:"100%",height:"100%",display:"block"}}>
-    <defs><radialGradient id={gid} cx="50%" cy="35%"><stop offset="0%" stopColor="#1a2333"/><stop offset="100%" stopColor="#06090f"/></radialGradient></defs>
-    <rect width="240" height="280" fill={`url(#${gid})`}/><rect x="0" y="240" width="240" height="40" fill="#0c1320"/>
-    <g transform={`translate(120,150) rotate(${tilt})`}>
-      <path d={`M ${-shExt} 70 Q ${-shExt} 10 -30 -5 L 30 -5 Q ${shExt} 10 ${shExt} 70 Z`} fill={distressLevel>2?"#2a3246":"#3a4556"}>{!still&&<animateTransform attributeName="transform" type="scale" values="1 1;1 1.04;1 1" dur={breath} repeatCount="indefinite"/>}</path>
-      <g transform={`translate(${-40+guarding*5},20) rotate(${guarding*15})`}><rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/><ellipse cx="0" cy="62" rx="8" ry="5" fill={nail}/></g>
-      <g transform={`translate(${40-guarding*5},20) rotate(${-guarding*15})`}><rect x="-8" y="0" width="16" height="60" rx="6" fill={sk}/><ellipse cx="0" cy="62" rx="8" ry="5" fill={nail}/></g>
-      <rect x={-nkW/2} y="-35" width={nkW} height="35" fill={sk}/>
-      <g transform="translate(0,-75)">
-        <ellipse cx="0" cy="0" rx="42" ry="52" fill={sk}/>
-        <path d="M -42 -5 Q -45 -55 0 -58 Q 45 -55 42 -5 Q 38 -30 0 -35 Q -38 -30 -42 -5" fill={hColor}/>
-        <ellipse cx="-15" cy="5" rx="7" ry={ey+1} fill={sclera}/><ellipse cx="15" cy="5" rx="7" ry={ey+1} fill={sclera}/>
-        <ellipse cx="-15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/><ellipse cx="15" cy="5" rx="4" ry={ey} fill="#1a1a1a"/>
-        <path d={distressLevel>2?"M -12 28 Q 0 22 12 28":"M -10 26 Q 0 30 10 26"} stroke={lip} strokeWidth="3" fill="none" strokeLinecap="round"/>
-        {diaphoresis>0&&[...Array(Math.round(diaphoresis*4))].map((_,i)=><circle key={i} cx={-30+i*12} cy={-25+(i%2)*8} r="1.8" fill="#bfe0ff" opacity="0.95" stroke="#5fa8d8" strokeWidth="0.4"/>)}
-      </g>
-    </g>
+  const{fitz=3,rrRate=16,pallor=0,diaphoresis=0,cyanosis=0,jaundice=0,eyeState="open",positioning="supine",distressLevel=0}=phys;
+  const fz=clamp(Math.round(fitz),1,6);const skin=rgb(applyPallor(FITZ_RGB[fz-1],pallor));
+  const pose=positioning==="tripod"?"tripod":positioning==="fetal"?"fetal":positioning==="supine"?"supine":(distressLevel>=3||eyeState==="closed")?"slumped":"upright";
+  const s=SIL[pose];const breath=`${(60/Math.max(8,rrRate)).toFixed(2)}s`;
+  const cy=Math.min(1,cyanosis*0.3),ja=Math.min(1,jaundice*0.3),dia=Math.min(1,diaphoresis*0.3);
+  const shape=(fill,extra)=><g {...extra}><circle cx={s.head[0]} cy={s.head[1]} r={s.head[2]} fill={fill}/><path d={s.body} fill={fill}/></g>;
+  return(<svg viewBox="0 0 240 280" role="img" aria-label={`Patient, ${pose}`} data-pose={pose} data-diaphoresis={diaphoresis} data-pallor={pallor} data-cyanosis={cyanosis} style={{width:"100%",height:"100%",display:"block"}}>
+    <defs>
+      <radialGradient id={`${gid}bg`} cx="50%" cy="40%"><stop offset="0%" stopColor="#1a2333"/><stop offset="100%" stopColor="#06090f"/></radialGradient>
+      <linearGradient id={`${gid}cy`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5a6cc0" stopOpacity="0"/><stop offset="100%" stopColor="#5a6cc0" stopOpacity={cy}/></linearGradient>
+      <linearGradient id={`${gid}ja`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e2c04a" stopOpacity={ja}/><stop offset="100%" stopColor="#e2c04a" stopOpacity="0"/></linearGradient>
+      <linearGradient id={`${gid}sh`} x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#dff0ff" stopOpacity="0"/><stop offset="38%" stopColor="#dff0ff" stopOpacity={dia*0.5}/><stop offset="62%" stopColor="#dff0ff" stopOpacity="0"/></linearGradient>
+    </defs>
+    <rect width="240" height="280" fill={`url(#${gid}bg)`}/>
+    <rect x="0" y="252" width="240" height="28" fill="#0c1320"/>
+    <g transform="translate(120 180)"><g>{!still&&<animateTransform attributeName="transform" type="scale" values="1 1;1.012 1.028;1 1" dur={breath} repeatCount="indefinite"/>}<g transform="translate(-120 -180)">
+      {s.arms&&<path d={s.arms} stroke={skin} strokeWidth="14" strokeLinecap="round" fill="none"/>}
+      {shape(skin,{fillOpacity:0.94,stroke:C.text,strokeWidth:1.2,strokeLinejoin:"round"})}
+      {cy>0&&shape(`url(#${gid}cy)`)}
+      {ja>0&&shape(`url(#${gid}ja)`)}
+      {dia>0&&shape(`url(#${gid}sh)`)}
+    </g></g></g>
   </svg>);
 };
 const PhysTags=({phys})=>{
@@ -408,7 +422,7 @@ const CASES_LIST=[
   ["Necrotizing fasciitis","that looked like cellulitis"],["Temporal arteritis","the headache in the 72-year-old"],
   ["Testicular torsion","presenting as abdominal pain"],["Cauda equina","the back pain with subtle retention"],
 ];
-const kicker={fontSize:12,letterSpacing:"0.32em",textTransform:"uppercase",color:C.redText};
+const kicker={fontSize:12,letterSpacing:"0.32em",textTransform:"uppercase",color:C.amber};
 const Landing=({onEnter,onSettings,returning})=>{
   const [m,setM]=useState(false);useEffect(()=>{setM(true)},[]);
   return(<div style={{minHeight:"100dvh",background:C.bg,color:C.text,fontFamily:SERIF}}>
@@ -487,6 +501,32 @@ const GutVsFinal=({g})=>{
   </div>);
 };
 
+// What his read is doing over time, not just where it stands. Shift cases only; Drill reports speed.
+const Line=({children})=><div style={{fontSize:15,lineHeight:1.5,color:C.dim}}>{children}</div>;
+const Insights=({stats,mode})=>{
+  const cal=stats.calibration||{};const rs=stats.readSpeed||{};const cm=stats.cantMiss||{};const dr=stats.drill||{};
+  const conf=(stats.confidence||[]).filter(b=>b.n>=3);
+  const weak=Object.entries(stats.byDomain||{}).filter(([,d])=>d&&d.n>=3).sort((a,b)=>a[1].avg-b[1].avg).slice(0,3);
+  return(<>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Acuity calibration <span style={{fontWeight:400,color:C.dim}}>· Shift cases</span></SectionTitle>
+    <Card><AcuityGrid grid={stats.acuityGrid}/></Card>
+    <div style={{marginTop:10,display:"grid",gap:4}}>
+      {cal.recent&&cal.recent.mae!=null&&cal.previous&&cal.previous.mae!=null&&<Line>Last 10 reads: acuity error <b style={{color:C.text,fontWeight:600}}>{cal.recent.mae}</b>, was {cal.previous.mae}.</Line>}
+      {rs.fast&&rs.fast.n>=3&&rs.slow&&rs.slow.n>=3&&<Line>Reads under 15 s: error {rs.fast.mae} · over 30 s: {rs.slow.mae}.</Line>}
+      {conf.map(b=><Line key={b.label}>When you said {b.label}%, your #1 was right {b.right} of {b.n} times.</Line>)}
+      {cm.serious>=5&&<Line>Can't-miss diagnoses caught: {cm.caught} of {cm.serious} serious cases.</Line>}
+      {(mode==="drill"||dr.n>0)&&dr.firstCritMedian!=null&&<Line>Drill · time to first critical action: median {dr.firstCritMedian} min{dr.firstCritRecent!=null?` (last five: ${dr.firstCritRecent})`:""}.</Line>}
+    </div>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Gut vs final</SectionTitle>
+    <GutVsFinal g={stats.gutVsFinal}/>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Weak spots</SectionTitle>
+    {weak.length?<div style={{display:"grid",gap:6}}>{weak.map(([d,v])=><div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4}}>
+      <span style={{fontSize:15}}>{d}</span><span className="mono" style={{fontSize:12,color:C.dim}}>avg <span style={{color:v.avg<60?C.amber:C.text}}>{Math.round(v.avg)}</span> · n={v.n}</span></div>)}</div>
+    :<Line>A domain needs three cases before it counts.</Line>}
+    {(stats.movedDomains||[]).length>0&&<div style={{marginTop:8,display:"grid",gap:2}}>{stats.movedDomains.map(m=><Line key={m.domain}>{m.domain}: {m.from} → <b style={{color:m.to>m.from?C.good:C.amber,fontWeight:600}}>{m.to}</b> over {m.n} cases.</Line>)}</div>}
+  </>);
+};
+
 const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
   const [settings,setS]=useState(getSettings);
   const [ready,setReady]=useState(prefetchReady);
@@ -499,10 +539,8 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
   const mode=settings.mode==="drill"?"drill":"shift";
   const setMode=m=>{setSettings({mode:m});setS(getSettings())};
   const hist=(stats.history||[]).slice().reverse();
-  const weak=Object.entries(stats.byDomain||{}).filter(([,d])=>d&&d.n>=3).sort((a,b)=>a[1].avg-b[1].avg).slice(0,3);
-  const now=Date.now();
-  const due=(stats.missQueue||[]).filter(q=>{const d=q&&Array.isArray(q.due)?q.due[q.stage||0]:null;return d!=null&&new Date(d).getTime()<=now}).length;
-  const pending=(stats.missQueue||[]).length;
+  const re=stats.reexposures||{total:0};
+  const rules=(stats.rules||[]).slice(0,5);
   const ap=active&&persona(active);
   return(<div style={{minHeight:"100dvh",padding:"0 16px calc(32px + env(safe-area-inset-bottom))",maxWidth:560,margin:"0 auto"}}>
     <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
@@ -513,37 +551,37 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
       <Label color={C.amber}>Patient in progress · T+{active.simMin||0} min</Label>
       <div style={{fontSize:15,marginTop:4}}>{ap.name||"Patient"}{ap.age!=null?`, ${ap.age}${ap.sex||""}`:""} — {ap.chiefComplaint||"resume"} <span style={{color:C.amber}}>→</span></div>
     </button>}
-    <button onClick={()=>onNext(mode)} style={{width:"100%",minHeight:84,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",background:C.red,color:C.text,borderRadius:4,boxShadow:`0 18px 44px -20px ${C.red}`}}>
-      <span style={{textAlign:"left"}}><span className="mono" style={{display:"block",fontSize:14,letterSpacing:"0.16em",textTransform:"uppercase",fontWeight:500}}>Next patient</span>
-        <span className="mono" style={{display:"flex",alignItems:"center",gap:6,fontSize:12,marginTop:6,color:"rgba(245,241,232,0.8)"}}><span aria-hidden style={{width:7,height:7,borderRadius:4,background:ready?C.good:"rgba(245,241,232,0.35)"}}/>{ready?"ready":"generates on tap"}</span></span>
+    <button onClick={()=>onNext(mode)} style={{width:"100%",minHeight:84,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",background:C.text,color:C.bg,borderRadius:4}}>
+      <span style={{textAlign:"left"}}><span className="mono" style={{display:"block",fontSize:14,letterSpacing:"0.16em",textTransform:"uppercase",fontWeight:600}}>Next patient</span>
+        <span className="mono" style={{display:"flex",alignItems:"center",gap:6,fontSize:12,marginTop:6,color:"rgba(10,10,10,0.7)"}}><span aria-hidden style={{width:7,height:7,borderRadius:4,background:ready?C.good:"rgba(10,10,10,0.3)"}}/>{ready?"ready":"generates on tap"}</span></span>
       <span style={{fontSize:22}} aria-hidden>→</span>
     </button>
     <div style={{marginTop:10}}>
-      <Choice label="Mode" activeColor="#262626" activeBorder={C.text} value={mode} onChange={setMode} options={[{v:"shift",label:"Shift",sub:"3 in 4 benign"},{v:"drill",label:"Drill",sub:"7 in 10 serious"}]}/>
+      <Choice label="Mode" activeColor="#262626" activeText={C.text} activeBorder={C.text} value={mode} onChange={setMode} options={[{v:"shift",label:"Shift",sub:"calibration · 3 in 4 benign"},{v:"drill",label:"Drill",sub:"speed · timer on, nights, lookalikes"}]}/>
     </div>
     {tip&&<div style={{marginTop:12}}><Card accent={C.amber} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
       <div style={{flex:1,fontSize:14,lineHeight:1.5,color:C.dim}}>Your history lives only in this browser. Add The Doorway to your Home Screen, and export your data now and then from Settings — Safari can clear site data it thinks you've abandoned.</div>
       <IconBtn label="Dismiss tip" onClick={()=>{lsSet("dw_ui_tip_done","1");setTip(false)}}><Icon name="close" size={20}/></IconBtn>
     </Card></div>}
-    {pending>0&&<div className="mono" style={{marginTop:12,fontSize:12,color:due?C.amber:C.dim}}>{due?`${due} pattern${due===1?"":"s"} due for re-exposure`:`${pending} pattern${pending===1?"":"s"} queued for re-exposure`}</div>}
+    {re.total>0&&<div className="mono" style={{marginTop:12,fontSize:12,color:C.dim}}>{re.month?`${re.month} missed pattern${re.month===1?"":"s"} came back this month · ${re.monthCaught} caught`:`${re.total} missed pattern${re.total===1?"":"s"} ${re.total===1?"has":"have"} come back · ${re.caught} caught`}</div>}
 
-    <SectionTitle style={{marginTop:28,marginBottom:10}}>Weak spots</SectionTitle>
-    {weak.length?<div style={{display:"grid",gap:6}}>{weak.map(([d,v])=><div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4}}>
-      <span style={{fontSize:15}}>{d}</span><span className="mono" style={{fontSize:12,color:C.dim}}>avg <span style={{color:v.avg<60?C.redText:C.text}}>{Math.round(v.avg)}</span> · n={v.n}</span></div>)}</div>
-    :<div style={{fontSize:14,color:C.faint}}>Not enough cases yet — a domain needs three before it counts.</div>}
+    {stats.cases>=10?<Insights stats={stats} mode={mode}/>
+      :<div style={{marginTop:24,fontSize:15,lineHeight:1.5,color:C.dim}}>Your calibration appears after ten cases{stats.cases?` — ${10-stats.cases} to go`:""}.</div>}
 
-    <SectionTitle style={{marginTop:28,marginBottom:10}}>Acuity calibration <span style={{fontWeight:400,color:C.dim}}>· your call vs truth</span></SectionTitle>
-    <Card><AcuityGrid grid={stats.acuityGrid}/></Card>
-
-    <SectionTitle style={{marginTop:28,marginBottom:10}}>Gut vs final</SectionTitle>
-    <GutVsFinal g={stats.gutVsFinal}/>
+    {rules.length>0&&<>
+      <SectionTitle style={{marginTop:28,marginBottom:10}}>Rules you are carrying</SectionTitle>
+      <div style={{display:"grid",gap:6}}>{rules.map((r,i)=><div key={r.caseId||i} style={{padding:"10px 12px",borderLeft:`2px solid ${C.amber}`,background:C.amberBg,borderRadius:4}}>
+        <div style={{fontSize:15,lineHeight:1.4}}>{r.rule}</div>
+        <div className="mono" style={{fontSize:12,color:C.faint,marginTop:3}}>{r.dx}{r.date?` · ${new Date(r.date).toLocaleDateString()}`:""}</div></div>)}</div>
+    </>}
 
     <SectionTitle style={{marginTop:28,marginBottom:10}}>Recent cases{stats.cases?<span style={{fontWeight:400,color:C.dim}}> · {stats.cases} total</span>:null}</SectionTitle>
     {hist.length?<div style={{display:"grid",gap:4}}>{hist.slice(0,10).map((h,i)=><button key={h.caseId||i} onClick={()=>onOpenHistory(h)} style={{display:"flex",alignItems:"center",gap:10,minHeight:52,padding:"8px 12px",textAlign:"left",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4}}>
       <span aria-label={h.caught?"caught":"missed"} style={{width:8,height:8,borderRadius:4,flexShrink:0,background:h.caught?C.good:C.red}}/>
       <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.dx||"Case"}</span>
-        <span className="mono" style={{fontSize:12,color:C.faint}}>{h.domain||""}{h.date?` · ${new Date(h.date).toLocaleDateString()}`:""}{h.reexposureOf?" · re-exposure":""}</span></span>
-      <span className="mono" style={{fontSize:14,color:C.dim}}>{h.score??"—"}</span></button>)}</div>
+        <span className="mono" style={{display:"block",fontSize:12,color:C.faint,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.domain||""}{h.date?` · ${new Date(h.date).toLocaleDateString()}`:""}{h.mode==="drill"?" · drill":""}{h.reexposureOf?" · came back":""}</span>
+        {h.carryForward&&<span style={{display:"block",fontSize:13,color:C.dim,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:2}}>{h.carryForward}</span>}</span>
+      <span aria-hidden style={{color:C.faint}}>→</span></button>)}</div>
     :<div style={{fontSize:14,color:C.faint}}>Your first patient is waiting.</div>}
     <div style={{marginTop:32,fontSize:12,color:C.faint,textAlign:"center"}}>A training tool, not medical advice.</div>
   </div>);
@@ -609,47 +647,58 @@ const CountdownRing=({total=20,onDone})=>{
   </div>);
 };
 
+// The look, then the monitor: the patient fills the top of the screen with the name and complaint
+// over the lower edge and the impression beneath; the vitals rise into place a beat later, in the
+// order a doctor perceives a doorway. Nothing here describes the case (no re-exposure label, no
+// domain): every word on this screen is a prior he did not earn. On Lock the patient slides away.
 const Doorway=({enc,onLock,onHome})=>{
   const reduced=useReducedMotion();
   const c=caseOf(enc),p=c.persona||{},seed=c.seed||{};
   const [sick,setSick]=useState(null),[acuity,setAcuity]=useState(null),[dispo,setDispo]=useState(null),[err,setErr]=useState(null);
-  const timed=!!getSettings().timePressure;
+  const [monitor,setMonitor]=useState(reduced);const [closing,setClosing]=useState(false);
+  const timed=!!getSettings().timePressure||seed.mode==="drill";
   const v=vitalsNow(enc);
   const all=sick!=null&&acuity!=null&&dispo!=null;
-  const lock=(timedOut)=>{try{onLock({sick,acuity:acuity??null,gutDispo:dispo,timedOut:!!timedOut})}catch(e){setErr(errMsg(e))}};
+  const rule=useMemo(()=>{const r=(safeStats().rules||[])[0];return r&&r.rule?r:null},[]);
+  useEffect(()=>{if(reduced){setMonitor(true);return}const t=setTimeout(()=>setMonitor(true),650);return()=>clearTimeout(t)},[reduced]);
+  const lock=(timedOut)=>{
+    const gut={sick,acuity:acuity??null,gutDispo:dispo,timedOut:!!timedOut};
+    const go=()=>{try{onLock(gut)}catch(e){setClosing(false);setErr(errMsg(e))}};
+    if(reduced||closing){go();return}
+    setClosing(true);setTimeout(go,600);
+  };
   const latest=useRef();latest.current=lock;
   const phys={...(c.physicality||{}),...(enc.physicality||{}),age:(c.physicality&&c.physicality.age)||p.age};
-  // Fits 390×844 without scrolling: figure beside name/CC; the read controls sit above a solid lock bar.
-  return(<div className="case-fade" style={{minHeight:"100dvh",maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column"}}>
+  const missing=[sick==null&&"sick",acuity==null&&"acuity",dispo==null&&"dispo"].filter(Boolean);
+  const ageLine=[seed.ageLabel||(p.age!=null?`${p.age} y`:null),p.sex].filter(Boolean).join(" ");
+  return(<div className="case-fade" style={{minHeight:"100dvh",maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",overflowX:"hidden"}}>
     <header style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 4px",borderBottom:`1px solid ${C.border}`}}>
       <IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn>
       <div style={{flex:1,minWidth:0}}><ConditionsStrip cond={seed.conditions}/></div>
     </header>
-    <div style={{flex:1,padding:"10px 16px 12px",display:"flex",flexDirection:"column",gap:10}}>
-      {seed.reexposure&&<Label color={C.amber}>Pattern re-exposure</Label>}
-      <div style={{display:"flex",gap:12,alignItems:"stretch"}}>
-        <div style={{width:112,height:132,flexShrink:0,borderRadius:4,overflow:"hidden",border:`1px solid ${C.border}`,background:"#0a0f18"}}><Avatar phys={phys} still={reduced}/></div>
-        <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{fontSize:20,fontWeight:600,letterSpacing:"-0.015em",lineHeight:1.15}}>{p.name||"Unknown patient"}</div>
-          <div className="mono" style={{fontSize:12,color:C.dim}}>{p.age}{p.sex} · {p.ethnicity||"—"}</div>
-          <div className="mono" style={{fontSize:12,color:C.faint}}>{p.arrivalMode||"—"}{p.occupation?` · ${p.occupation}`:""}</div>
-          <div style={{marginTop:"auto",padding:"6px 8px",background:C.amberBg,borderLeft:`2px solid ${C.amber}`,borderRadius:2,fontSize:15,lineHeight:1.3}} aria-label={`Chief complaint: ${p.chiefComplaint||"—"}`}>{p.chiefComplaint||"—"}</div>
+    <div className="door-close" style={{flex:1,padding:"10px 16px 12px",display:"flex",flexDirection:"column",gap:10,transform:closing?"translateX(-110%)":"none",opacity:closing?0:1}}>
+      {rule&&<div style={{padding:"8px 10px",borderLeft:`2px solid ${C.amber}`,background:C.amberBg,fontSize:15,lineHeight:1.4}}><span className="mono" style={{fontSize:12,color:C.amber,letterSpacing:"0.08em",marginRight:8}}>YOUR RULE</span>{rule.rule}</div>}
+      <div style={{position:"relative",height:208,borderRadius:4,overflow:"hidden",border:`1px solid ${C.border}`,background:"#0a0f18"}}>
+        <Avatar phys={phys} still={reduced}/>
+        <div style={{position:"absolute",left:0,right:0,bottom:0,padding:"28px 12px 10px",background:"linear-gradient(to top, rgba(6,9,15,0.96) 55%, rgba(6,9,15,0))"}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}><span style={{fontSize:22,fontWeight:600,letterSpacing:"-0.015em",lineHeight:1.1}}>{p.name||"Unknown patient"}</span><span className="mono" style={{fontSize:12,color:C.dim}}>{ageLine}{p.arrivalMode?` · ${p.arrivalMode}`:""}</span></div>
+          <div style={{marginTop:4,fontSize:17,lineHeight:1.3}} aria-label={`Chief complaint: ${p.chiefComplaint||"—"}`}>{p.chiefComplaint||"—"}</div>
         </div>
       </div>
+      {p.doorwayImpression&&<div className="display" style={{fontSize:20,lineHeight:1.35,color:"#cdd2ee",borderLeft:`2px solid ${C.indigo}`,paddingLeft:10}}>{p.doorwayImpression}</div>}
+      {p.emsHandoff&&<div style={{fontSize:15,color:C.dim,lineHeight:1.4}}>EMS: “{p.emsHandoff}”</div>}
       <PhysTags phys={phys}/>
-      {p.emsHandoff&&<div className="display" style={{fontSize:15,color:C.dim,lineHeight:1.4}}>EMS: “{p.emsHandoff}”</div>}
-      <VitalTiles vitals={v} band={seed.ageBand} reduced={reduced}/>
-      {p.doorwayImpression&&<div className="display" style={{fontSize:16,lineHeight:1.4,color:"#cdd2ee",borderLeft:`2px solid ${C.indigo}`,paddingLeft:10}}>{p.doorwayImpression}</div>}
-      <Choice label="Sick or not sick" value={sick} onChange={setSick} options={[{v:true,label:"Sick"},{v:false,label:"Not sick"}]}/>
+      {monitor?<div className={reduced?"":"rise"}><VitalTiles vitals={v} band={seed.ageBand} reduced={reduced} big/></div>:<div style={{height:66}} aria-hidden/>}
+      <Choice label="Sick or not sick" big value={sick} onChange={setSick} options={[{v:true,label:"Sick"},{v:false,label:"Not sick"}]}/>
       <div className="mono" style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.faint,letterSpacing:"0.12em",textTransform:"uppercase"}}><span>Acuity · ESI</span><span style={{color:C.dim,letterSpacing:"0.04em",textTransform:"none"}}>{acuity?acuityText(acuity):"1 sickest · 5 least"}</span></div>
-      <Choice label="Acuity, ESI 1 resuscitation to 5 non-urgent" value={acuity} onChange={setAcuity} activeColor={C.amber} activeText={C.bg} options={[1,2,3,4,5].map(n=>({v:n,label:String(n),sub:ACUITY_WORD[n]}))}/>
+      <Choice label="Acuity, ESI 1 resuscitation to 5 non-urgent" value={acuity} onChange={setAcuity} activeColor={C.amber} activeText={C.bg} fontSize={20} options={[1,2,3,4,5].map(n=>({v:n,label:String(n),aria:`${n} ${ACUITY_WORD[n]}`}))}/>
       <Label>Gut disposition</Label>
       <Choice label="Gut disposition" value={dispo} onChange={setDispo} options={["Discharge","Admit","Transfer"].map(d=>({v:d,label:d}))}/>
       <ErrorBox error={err}/>
     </div>
     <div style={{position:"sticky",bottom:0,padding:"10px 16px calc(10px + env(safe-area-inset-bottom))",background:C.bg,borderTop:`1px solid ${C.border}`,display:"flex",gap:10,alignItems:"center",zIndex:10}}>
       {timed&&<CountdownRing total={20} onDone={()=>latest.current(true)}/>}
-      <Btn kind="primary" disabled={!all} onClick={()=>lock(false)} style={{flex:1,minHeight:52,fontSize:13}}>{all?"Lock and start →":"Sick · acuity · dispo"}</Btn>
+      <Btn kind="lock" disabled={!all||closing} onClick={()=>lock(false)} style={{flex:1,minHeight:52,fontSize:13}}>{all?"Lock and start →":missing.join(" · ")}</Btn>
     </div>
   </div>);
 };
@@ -665,9 +714,11 @@ const eventText=(ev,vitals)=>{
 };
 
 const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
-  const [ddx,setDdx]=useState(["","",""]);const [conf,setConf]=useState(60);const [dispo,setDispo]=useState(null);
+  const [ddx,setDdx]=useState(["","",""]);const [conf,setConf]=useState(60);const [dispo,setDispo]=useState(null);const [focus,setFocus]=useState(null);
   const [tc,setTc]=useState({airway:false,access:false,blood:false,pressors:false,sedation:false,receivingCall:false});
   const names=useMemo(()=>{try{return[...new Set((CASES_().CATALOG||[]).map(x=>x.dx).filter(Boolean))].sort()}catch{return[]}},[]);
+  // iOS Safari hides <datalist> suggestions; show up to five matches as tappable chips under the focused field.
+  const suggest=i=>{const q=(ddx[i]||"").trim().toLowerCase();if(focus!==i||q.length<2)return[];return names.filter(n=>n.toLowerCase().includes(q)&&n.toLowerCase()!==q).slice(0,5)};
   const dispos=(DW_()&&DW_().DISPOS)||["Discharge","Discharge w/ f/u","Admit inpatient","Transfer","Emergent transfer"];
   const isT=/transfer/i.test(dispo||"");
   const ok=ddx[0].trim()&&dispo&&!busy;
@@ -676,10 +727,12 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
   return(<Sheet title="Commit" onClose={busy?()=>{}:onClose} maxH="94dvh">
     <datalist id="dw-dx">{names.map(n=><option key={n} value={n}/>)}</datalist>
     <SectionTitle size={16} style={{marginBottom:8}}>Differential, most likely first</SectionTitle>
-    {ddx.map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+    {ddx.map((d,i)=><div key={i} style={{marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:8}}>
       <span className="mono" style={{fontSize:13,color:i?C.faint:C.amber,width:22}}>#{i+1}</span>
-      <input list="dw-dx" value={d} onChange={e=>{const n=ddx.slice();n[i]=e.target.value;setDdx(n)}} placeholder={i?"optional":"required"} aria-label={`Diagnosis ${i+1}`}
-        style={{flex:1,minHeight:44,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:16,color:C.text,outline:"none"}}/></div>)}
+      <input list="dw-dx" value={d} onChange={e=>{const n=ddx.slice();n[i]=e.target.value;setDdx(n)}} onFocus={()=>setFocus(i)} onBlur={()=>setTimeout(()=>setFocus(f=>f===i?null:f),150)} placeholder={i?"optional":"required"} aria-label={`Diagnosis ${i+1}`} autoComplete="off"
+        style={{flex:1,minHeight:44,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:16,color:C.text,outline:"none"}}/></div>
+      {suggest(i).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 0 2px 30px"}}>{suggest(i).map(n=><button key={n} onMouseDown={e=>e.preventDefault()} onClick={()=>{const x=ddx.slice();x[i]=n;setDdx(x);setFocus(null)}} style={{minHeight:40,padding:"0 12px",borderRadius:4,fontSize:14,background:C.bg3,color:C.text,border:`1px solid ${C.border}`}}>{n}</button>)}</div>}
+    </div>)}
     <div className="mono" style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.faint,letterSpacing:"0.14em",textTransform:"uppercase",marginTop:12}}><span>Confidence in #1</span><span style={{color:C.text}}>{conf}%</span></div>
     <input type="range" min="0" max="100" step="5" value={conf} onChange={e=>setConf(Number(e.target.value))} aria-label="Confidence in diagnosis 1"/>
     <SectionTitle size={16} style={{margin:"10px 0 8px"}}>Final disposition</SectionTitle>
@@ -690,7 +743,7 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
     </div>}
     <ErrorBox error={error} onRetry={ok?submit:null} style={{marginTop:12}}/>
     <div style={{position:"sticky",bottom:-20,margin:"14px -18px -20px",padding:"10px 18px 20px",background:C.bg2,borderTop:`1px solid ${C.border}`}}>
-    <Btn kind="primary" disabled={!ok} onClick={submit} style={{width:"100%",minHeight:52}}>{busy?<span className="pulse-slow">Attending reviewing…</span>:"Submit for grading"}</Btn></div>
+    <Btn kind="lock" disabled={!ok} onClick={submit} style={{width:"100%",minHeight:52}}>{busy?<span className="pulse-slow">Attending reviewing…</span>:"Submit for grading"}</Btn></div>
   </Sheet>);
 };
 
@@ -715,7 +768,7 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const [pending,setPending]=useState(null);const [banner,setBanner]=useState(null);const [flash,setFlash]=useState({});
   const [trend,setTrend]=useState(null);const [commit,setCommit]=useState(false);const [gBusy,setGBusy]=useState(false);const [gErr,setGErr]=useState(null);
   const [listening,setListening]=useState(false);const recog=useRef(null);const [interim,setInterim]=useState("");
-  const [saveFail,setSaveFail]=useState(!!saveWarn);const [announce,setAnnounce]=useState("");
+  const [saveFail,setSaveFail]=useState(!!saveWarn);const [announce,setAnnounce]=useState("");const [who,setWho]=useState(false);
   const logRef=useRef(null);
   const shownMin=useCountUp(enc.simMin||0,600,reduced);
   // Stale-reply guard: a reply that lands after he left this screen (or this case) is dropped.
@@ -771,18 +824,24 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const eta=tr&&tr.etaMin!=null?Math.round(tr.etaMin-(enc.simMin||0)):null;
   const n=tray.length;
   const batchCost=tray.reduce((m,x)=>Math.max(m,chipCostOf(x.group,x.label)),0);
+  const crewHere=!!(tr&&tr.status==="at bedside");
+  const physNow={...(c.physicality||{}),...(enc.physicality||{}),age:p.age};
+  const firstName=(p.name||"Patient").split(" ")[0];
+  const ageLine=[seed.ageLabel||(p.age!=null?`${p.age} y`:null),p.sex].filter(Boolean).join(" ");
   return(<div style={{height:"100dvh",display:"flex",flexDirection:"column",maxWidth:560,margin:"0 auto",overflow:"hidden"}}>
     <header style={{flexShrink:0,background:C.bg,borderBottom:`1px solid ${C.border}`,padding:"0 8px 8px"}}>
       <div style={{display:"flex",alignItems:"center",gap:6,height:52}}>
         <IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn>
-        <div style={{width:36,height:42,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`,flexShrink:0}}><Avatar phys={{...(c.physicality||{}),...(enc.physicality||{}),age:p.age}} still/></div>
+        <button onClick={()=>setWho(true)} aria-label={`About ${p.name||"the patient"}`} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:34,height:40,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`}}><Avatar phys={physNow} still/></div></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8}}><span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>T+{shownMin}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
-            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap"}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"on scene"):(tr.status||"")}</span>}</div>
-          <div className="mono" style={{fontSize:12,color:C.dim,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:5}} aria-label="Locked gut">
-            <Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></div>
+            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap"}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"crew at bedside"):(tr.status||"")}</span>}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center",minWidth:0}}>
+            <span className="mono" style={{fontSize:12,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 auto",minWidth:0}}>{p.name||"Patient"}{ageLine?` · ${ageLine}`:""}{p.chiefComplaint?` · ${p.chiefComplaint}`:""}</span>
+            <span className="mono" style={{fontSize:12,color:C.dim,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4,flexShrink:0}} aria-label="Locked gut"><Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></span>
+          </div>
         </div>
-        <Btn kind="line" onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 12px",borderColor:C.red}}>Commit</Btn>
+        <Btn kind={crewHere?"lock":"line"} onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 12px"}}>Commit</Btn>
       </div>
       <div style={{padding:"0 4px 6px"}}><ConditionsStrip cond={seed.conditions} compact/></div>
       <VitalTiles vitals={vitals} prev={prev} band={seed.ageBand} onTap={setTrend} flash={flash} reduced={reduced}/>
@@ -807,25 +866,40 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
     </div>
 
     <div style={{flexShrink:0,borderTop:`1px solid ${C.border}`,background:C.bg,paddingBottom:"env(safe-area-inset-bottom)"}}>
-      {tab&&chipsAll[tab]&&<div id="dw-chip-panel" role="group" aria-label={`${tab} options`} style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 2px",maxHeight:156,overflowY:"auto"}}>
+      {tab&&chipsAll[tab]&&<div id="dw-chip-panel" role="group" aria-label={`${tab} options`} style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 2px",maxHeight:"45dvh",overflowY:"auto"}}>
         {chipsAll[tab].map(l=>{const on=tray.some(x=>x.group===tab&&x.label===l);const cost=chipCostOf(tab,l);return(
-          <button key={l} className="chip" aria-label={l} aria-pressed={on} onClick={()=>toggleChip(tab,l)} style={{minHeight:44,padding:"0 14px",borderRadius:22,fontSize:14,background:on?C.red:C.bg3,color:C.text,border:`1px solid ${on?C.red:C.border}`,display:"inline-flex",alignItems:"center"}}>{l}{cost>0&&<span className="mono" aria-hidden style={{fontSize:12,color:on?"rgba(245,241,232,0.85)":C.faint,marginLeft:7}}>+{cost}</span>}</button>)})}
+          <button key={l} className="chip" aria-label={l} aria-pressed={on} onClick={()=>toggleChip(tab,l)} style={{minHeight:44,padding:"0 14px",borderRadius:4,fontSize:14,background:on?C.text:C.bg3,color:on?C.bg:C.text,border:`1px solid ${on?C.text:C.border}`,display:"inline-flex",alignItems:"center"}}>{l}{cost>0&&<span className="mono" aria-hidden style={{fontSize:12,color:on?"rgba(10,10,10,0.65)":C.faint,marginLeft:7}}>+{cost}</span>}</button>)})}
       </div>}
-      <div aria-label="Order groups" style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 0"}}>
+      <div aria-label="Order groups" style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 0",opacity:crewHere?0.6:1}}>
         {groups.map(g=>{const on=tab===g;const cnt=tray.filter(x=>x.group===g).length;return(
-          <button key={g} aria-expanded={on} aria-controls="dw-chip-panel" className="chip mono" onClick={()=>{setTab(on?null:g);haptic(6)}} style={{minHeight:44,padding:"0 11px",borderRadius:22,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",background:on?C.text:C.bg3,color:on?C.bg:(g==="Stabilize"||g==="Transfer")?C.amber:C.dim,border:`1px solid ${on?C.text:C.border}`}}>{g}{cnt?` · ${cnt}`:""}</button>)})}
+          <button key={g} aria-expanded={on} aria-controls="dw-chip-panel" className="chip mono" onClick={()=>{setTab(on?null:g);haptic(6)}} style={{minHeight:44,padding:"0 11px",borderRadius:4,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase",background:on?C.text:C.bg3,color:on?C.bg:(g==="Stabilize"||g==="Transfer")?C.amber:C.dim,border:`1px solid ${on?C.text:C.border}`}}>{g}{cnt?` · ${cnt}`:""}</button>)})}
       </div>
-      {n>0&&<div className="scrollx" aria-label="Selected orders" style={{display:"flex",gap:6,overflowX:"auto",padding:"8px 8px 0"}}>
-        {tray.map(x=><button key={x.group+x.label} onClick={()=>toggleChip(x.group,x.label)} aria-label={`Remove ${x.label}`} style={{flexShrink:0,minHeight:44,padding:"0 12px",borderRadius:4,fontSize:13,background:C.docBg,color:C.doc,border:`1px solid ${C.docBorder}`}}>{x.label} <span aria-hidden style={{opacity:0.7}}>×</span></button>)}
-      </div>}
       {listening&&<div className="mono" role="status" style={{fontSize:12,color:C.faint,padding:"6px 8px 0"}}>{interim||"Listening…"}</div>}
-      <div style={{display:"flex",gap:6,padding:8}}>
-        <IconBtn label={listening?"Stop dictation":"Dictate"} onClick={voice} style={{border:`1px solid ${listening?C.red:C.border}`,background:listening?C.red:C.bg3,color:C.text,width:48}}><Icon name="mic"/></IconBtn>
-        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send()}} placeholder="Type an order or a question" enterKeyHint="send" aria-label="Free text order or question"
-          style={{flex:1,minWidth:0,minHeight:48,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"0 12px",fontSize:16,color:C.text,outline:"none"}}/>
+      <div style={{display:"flex",gap:6,padding:8,alignItems:"flex-end"}}>
+        <IconBtn label={listening?"Stop dictation":"Dictate"} onClick={voice} style={{border:`1px solid ${listening?C.amber:C.border}`,background:listening?C.amberBg:C.bg3,color:listening?C.amber:C.text,width:48,height:48}}><Icon name="mic"/></IconBtn>
+        <div style={{flex:1,minWidth:0,minHeight:48,display:"flex",flexWrap:"wrap",alignItems:"center",gap:4,padding:"4px 6px",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4}} aria-label="Selected orders">
+          {tray.map(x=><button key={x.group+x.label} onClick={()=>toggleChip(x.group,x.label)} aria-label={`Remove ${x.label}`} style={{minHeight:36,padding:"0 10px",borderRadius:4,fontSize:13,background:C.docBg,color:C.doc,border:`1px solid ${C.docBorder}`,whiteSpace:"nowrap"}}>{x.label} <span aria-hidden style={{opacity:0.7}}>×</span></button>)}
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send()}} placeholder={n?"add a note…":"Type an order or a question"} enterKeyHint="send" aria-label="Free text order or question"
+            style={{flex:"1 1 120px",minWidth:0,minHeight:38,background:"transparent",border:"none",padding:"0 6px",fontSize:16,color:C.text,outline:"none"}}/>
+        </div>
         <Btn kind="primary" onClick={()=>send()} disabled={busy||(!text.trim()&&!n)} style={{minHeight:48,padding:"0 14px",whiteSpace:"nowrap"}} aria-label={n?`Send ${n} orders`:"Send"}>{busy?"…":n?`Send ${n}${batchCost?` · +${batchCost}`:""}`:"Send"}</Btn>
       </div>
     </div>
+    {who&&<Sheet title={p.name||"Patient"} onClose={()=>setWho(false)}>
+      <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+        <div style={{width:128,height:160,flexShrink:0,borderRadius:4,overflow:"hidden",border:`1px solid ${C.border}`,background:"#0a0f18"}}><Avatar phys={physNow} still={reduced}/></div>
+        <div style={{flex:1,minWidth:0,display:"grid",gap:6,fontSize:15,lineHeight:1.4}}>
+          <div className="mono" style={{fontSize:12,color:C.dim}}>{ageLine}{p.ethnicity?` · ${p.ethnicity}`:""}{p.occupation?` · ${p.occupation}`:""}</div>
+          <div className="mono" style={{fontSize:12,color:C.faint}}>Arrived {p.arrivalMode||"—"}</div>
+          <div style={{padding:"6px 8px",background:C.amberBg,borderLeft:`2px solid ${C.amber}`,borderRadius:2}}>{p.chiefComplaint||"—"}</div>
+        </div>
+      </div>
+      {p.emsHandoff&&<div style={{marginTop:12,fontSize:15,color:C.dim,lineHeight:1.4}}>EMS: “{p.emsHandoff}”</div>}
+      {p.doorwayImpression&&<div className="display" style={{marginTop:12,fontSize:18,lineHeight:1.35,color:"#cdd2ee",borderLeft:`2px solid ${C.indigo}`,paddingLeft:10}}>{p.doorwayImpression}</div>}
+      <div style={{marginTop:14}}><ConditionsStrip cond={seed.conditions}/></div>
+      <div className="mono" style={{marginTop:12,fontSize:12,color:C.dim,display:"flex",alignItems:"center",gap:6}}><Icon name="lock" size={12}/>Your read: {gut.sick==null?"—":gut.sick?"sick":"not sick"} · ESI {gut.acuity||"—"} · {gut.gutDispo||"—"}{gut.elapsedSec!=null?` · locked in ${gut.elapsedSec} s`:""}{gut.timedOut?" · timed out":""}</div>
+      <div style={{height:12}}/>
+    </Sheet>}
     {trend&&<TrendSheet k={trend} enc={enc} band={seed.ageBand} onClose={()=>setTrend(null)}/>}
     {commit&&<CommitSheet enc={enc} onClose={()=>setCommit(false)} onSubmit={grade} busy={gBusy} error={gErr}/>}
   </div>);
@@ -842,39 +916,60 @@ const Pair=({label,you,truth,ok,note})=>(
 const Pairs=({d})=>(
   <Card>
     <div style={{display:"grid",gridTemplateColumns:"74px 1fr 1fr",gap:8}}><span/><Label>You</Label><Label>Truth</Label></div>
-    <Pair label="Read" you={d.gutSick==null?"—":d.gutSick?"Sick":"Not sick"} truth={d.trueSerious==null?"—":d.trueSerious?"Sick":"Not sick"} ok={d.gutSick==null||d.trueSerious==null?undefined:d.gutSick===d.trueSerious} note={d.timedOut?"timed out":null}/>
+    <Pair label="Read" you={d.gutSick==null?"—":d.gutSick?"Sick":"Not sick"} truth={d.trueSerious==null?"—":d.trueSerious?"Sick":"Not sick"} ok={d.gutSick==null||d.trueSerious==null?undefined:d.gutSick===d.trueSerious} note={[d.lockSec!=null?`locked in ${d.lockSec} s`:null,d.timedOut?"timed out":null].filter(Boolean).join(" · ")||null}/>
     <Pair label="ESI" you={acuityText(d.gutAcuity)} truth={acuityText(d.trueAcuity)} ok={d.gutAcuity==null||d.trueAcuity==null?undefined:Math.abs(d.gutAcuity-d.trueAcuity)<=0} note={d.gutAcuity!=null&&d.trueAcuity!=null&&d.gutAcuity!==d.trueAcuity?`off by ${Math.abs(d.gutAcuity-d.trueAcuity)}`:null}/>
     <Pair label="Dispo" you={d.finalDispo||d.gutDispo} truth={d.trueDispo} ok={d.trueDispo?dispoFamily(d.finalDispo)===dispoFamily(d.trueDispo):undefined} note={d.gutDispo?`gut: ${d.gutDispo}`:null}/>
     <Pair label="Dx" you={(d.ddx&&d.ddx[0])||"—"} truth={d.trueDx} ok={d.caught==null?undefined:!!d.caught} note={d.rank?`true dx at #${d.rank}${d.confidence!=null?` · ${d.confidence}% sure of #1`:""}`:d.caught===false?"not in your DDx":null}/>
   </Card>);
 
-// Sorted by sim minute. The commit is the last item, at the final sim time; anything the grader
-// placed after it (a missed action's window, a divergence) is pinned to the commit minute.
-const buildTimeline=(enc,grade,answers)=>{
-  const items=[];let seq=0;
-  const end=Math.max(0,Number(enc.simMin)||0);
-  const at=v=>{const n=Number(v);return isFinite(n)?Math.max(0,Math.min(n,end)):0};
-  (enc.log||[]).forEach(e=>{if(e.k==="doc")items.push({m:at(e.atMin),o:1,s:seq++,kind:"order",text:e.t});else if(e.k==="event")items.push({m:at(e.atMin),o:0,s:seq++,kind:"event",text:e.t})});
-  (grade.criticalActions||[]).forEach(a=>{
-    if(a.status==="missed")items.push({m:at(a.windowMin),o:2,s:seq++,kind:"missed",text:a.action,win:a.windowMin});
-    else if(a.status==="late")items.push({m:at(a.atMin??a.windowMin),o:2,s:seq++,kind:"late",text:a.action,late:a.atMin!=null&&a.windowMin!=null?a.atMin-a.windowMin:null,quote:a.quote});
-    else if(a.status==="done")items.push({m:at(a.atMin),o:2,s:seq++,kind:"done",text:a.action,quote:a.quote});
-  });
-  (grade.divergences||[]).forEach(d=>items.push({m:at(d.atMin),o:3,s:seq++,kind:"div",did:d.did,should:d.shouldHave}));
-  items.push({m:end,o:9,s:seq++,kind:"commit",text:(answers&&answers.finalDispo)||"—"});
-  return items.sort((a,b)=>a.m-b.m||a.o-b.o||a.s-b.s);
-};
-const TimelineItem=({it})=>{
-  const row=(color,tag,body,bg)=>(<div data-tl-min={Math.round(it.m)} data-tl-kind={it.kind} style={{display:"grid",gridTemplateColumns:"52px 1fr",gap:8,padding:"8px 0",borderTop:`1px solid ${C.border}`,background:bg}}>
-    <span className="mono" style={{fontSize:12,color:C.faint,paddingLeft:bg?6:0}}>T+{Math.round(it.m)}</span>
-    <div>{tag&&<Label color={color} style={{letterSpacing:"0.12em",marginBottom:2}}>{tag}</Label>}<div style={{fontSize:14,lineHeight:1.45}}>{body}</div></div></div>);
-  if(it.kind==="order")return row(null,null,<span style={{color:C.doc}}>{it.text}</span>);
-  if(it.kind==="commit")return row(C.dim,"Committed",it.text);
-  if(it.kind==="event")return row(C.redText,"Event",it.text);
-  if(it.kind==="done")return row(C.good,"Critical action · on time",it.text);
-  if(it.kind==="late")return row(C.amber,`Critical action · ${it.late!=null?`+${it.late} min late`:"late"}`,it.text);
-  if(it.kind==="missed")return row(C.redText,`Missed · window ${it.win!=null?`≤${it.win} min`:""}`,it.text,"rgba(139,0,0,0.14)");
-  return row(C.indigo,"Divergence",<><span style={{color:C.dim}}>You: {it.did}</span><br/><span>Should have: {it.should}</span></>);
+// Two columns, one clock: the answer key's ideal sequence on the left, what he did on the right,
+// critical-action windows as bands across both, lateness as the gap between them. Items sit at
+// their minute and are nudged down when they collide; DOM order stays by minute.
+const layoutColumn=(items,scale,rowH)=>{const sorted=items.slice().sort((a,b)=>a.m-b.m||a.o-b.o);let y=0;return sorted.map(it=>{const top=Math.max(it.m*scale,y);y=top+rowH(it)+8;return{...it,top}})};
+const Ruler=({enc,grade,answers,ak})=>{
+  const end=Math.max(1,Number(enc.simMin)||0);
+  const clampM=v=>Math.max(0,Math.min(Number(v)||0,end));
+  const crits=grade.criticalActions||[];
+  const ideal=(ak.idealSequence||[]).map((s,i)=>({m:clampM(s.atMin),o:1,kind:"ideal",text:s.action,key:"i"+i}));
+  crits.forEach((a,i)=>{if(a.status==="missed")ideal.push({m:clampM(a.windowMin),o:2,kind:"missed",text:a.action,win:a.windowMin,key:"m"+i})});
+  const mine=[];
+  (enc.log||[]).forEach((e,i)=>{if(e.k==="doc")mine.push({m:clampM(e.atMin),o:1,kind:"order",text:e.t,vitals:e.vitals,key:"d"+i});else if(e.k==="event")mine.push({m:clampM(e.atMin),o:0,kind:"event",text:e.t,key:"e"+i})});
+  crits.forEach((a,i)=>{if(a.status==="done")mine.push({m:clampM(a.atMin),o:2,kind:"done",text:a.action,key:"c"+i});else if(a.status==="late")mine.push({m:clampM(a.atMin??a.windowMin),o:2,kind:"late",text:a.action,late:a.atMin!=null&&a.windowMin!=null?a.atMin-a.windowMin:null,win:a.windowMin,key:"l"+i})});
+  (grade.divergences||[]).forEach((d,i)=>mine.push({m:clampM(d.atMin),o:3,kind:"div",did:d.did,should:d.shouldHave,key:"v"+i}));
+  mine.push({m:end,o:9,kind:"commit",text:(answers&&answers.finalDispo)||"—",key:"commit"});
+  const scale=Math.max(1.4,Math.min(3.2,560/end));
+  const rowH=it=>it.kind==="div"?66:it.kind==="order"?(it.vitals?54:36):it.kind==="ideal"?34:40;
+  const L=layoutColumn(ideal,scale,rowH),R=layoutColumn(mine,scale,rowH);
+  const H=Math.max(end*scale,...L.map(i=>i.top+rowH(i)),...R.map(i=>i.top+rowH(i)))+16;
+  const step=end>180?60:end>90?30:15;const stamps=[];for(let m=0;m<=end;m+=step)stamps.push(m);
+  const bands=crits.filter(a=>a.windowMin!=null&&a.status!=="done").map((a,i)=><div key={"w"+i} aria-hidden style={{position:"absolute",left:0,right:0,top:0,height:clampM(a.windowMin)*scale,background:a.status==="missed"?"rgba(139,0,0,0.09)":"rgba(212,160,74,0.06)",borderBottom:`1px dashed ${a.status==="missed"?C.red:C.amber}`}}/>);
+  const tag=(color,t)=><div className="mono" style={{fontSize:12,color,letterSpacing:"0.08em",textTransform:"uppercase"}}>{t}</div>;
+  const item=(it,withAttrs)=>{
+    let body;
+    if(it.kind==="ideal")body=<div style={{color:C.dim}}>{it.text}</div>;
+    else if(it.kind==="missed")body=<>{tag(C.redText,`Missed · by T+${it.win}`)}<div>{it.text}</div></>;
+    else if(it.kind==="order")body=<><div style={{color:C.doc}}>{it.text}</div>{it.vitals&&<div className="mono" style={{fontSize:12,color:C.faint,marginTop:2}}>HR {it.vitals.HR} · BP {it.vitals.SBP}/{it.vitals.DBP} · SpO₂ {it.vitals.SpO2}%</div>}</>;
+    else if(it.kind==="event")body=<>{tag(C.redText,"Event")}<div>{it.text}</div></>;
+    else if(it.kind==="done")body=<>{tag(C.good,"Critical action · on time")}<div>{it.text}</div></>;
+    else if(it.kind==="late")body=<>{tag(C.amber,`Critical action · +${it.late} min late`)}<div>{it.text}</div></>;
+    else if(it.kind==="div")body=<>{tag(C.indigo,"Divergence")}<div style={{color:C.dim}}>You: {it.did}</div><div>Should have: {it.should}</div></>;
+    else body=<>{tag(C.dim,"Committed")}<div>{it.text}</div></>;
+    const attrs=withAttrs?{"data-tl-min":Math.round(it.m),"data-tl-kind":it.kind}:{};
+    return<div key={it.key} {...attrs} style={{position:"absolute",top:it.top,left:0,right:0,fontSize:14,lineHeight:1.3}}>{body}</div>;
+  };
+  const lateLines=R.filter(it=>it.kind==="late"&&it.win!=null).map(it=><div key={"ll"+it.key} aria-hidden style={{position:"absolute",left:21,top:clampM(it.win)*scale,height:Math.max(0,it.top-clampM(it.win)*scale),borderLeft:`2px solid ${C.amber}`}}/>);
+  return(<div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 44px 1fr",marginBottom:6}}><Label>Ideal</Label><span/><Label style={{textAlign:"right"}}>You</Label></div>
+    <div style={{position:"relative",display:"grid",gridTemplateColumns:"1fr 44px 1fr",height:H}}>
+      <div style={{position:"relative"}}>{bands}{L.map(it=>item(it,false))}</div>
+      <div style={{position:"relative"}}>
+        <div aria-hidden style={{position:"absolute",left:21,top:0,bottom:0,borderLeft:`1px solid ${C.border}`}}/>
+        {lateLines}
+        {stamps.map(m=><div key={m} className="mono" style={{position:"absolute",top:m*scale-7,left:0,width:44,textAlign:"center",fontSize:12,color:C.faint,background:C.bg,lineHeight:"14px"}}>T+{m}</div>)}
+      </div>
+      <div style={{position:"relative",textAlign:"right"}}>{R.map(it=>item(it,true))}</div>
+    </div>
+  </div>);
 };
 
 const Debrief=({data,onNext,onHome})=>{
@@ -886,33 +981,42 @@ const Debrief=({data,onNext,onHome})=>{
   const ak=enc?caseOf(enc).answerKey||{}:{};
   const seed=enc?seedOf(enc):{};
   const gut=enc&&enc.gut||{};
-  const d=!full?{gutSick:entry.gutSick,timedOut:entry.gutTimedOut,trueSerious:entry.bucket?entry.bucket==="serious":null,gutAcuity:entry.gutAcuity,trueAcuity:entry.trueAcuity,gutDispo:entry.gutDispo,finalDispo:entry.finalDispo,trueDispo:entry.trueDispo,ddx:entry.ddx,trueDx:entry.dx,caught:entry.caught,rank:entry.rankOfTrueDx,confidence:entry.confidence}
-    :{gutSick:gut.sick,timedOut:gut.timedOut,trueSerious:seed.bucket?seed.bucket==="serious":(ak.trueAcuity!=null?ak.trueAcuity<=2:null),gutAcuity:gut.acuity,trueAcuity:ak.trueAcuity,gutDispo:gut.gutDispo,finalDispo:answers.finalDispo,trueDispo:ak.trueDispo,ddx:answers.ddx,trueDx:ak.trueDx||seed.dx,caught:grade.caughtInDdx,rank:grade.rankOfTrueDx,confidence:answers.confidence};
+  const d=!full?{gutSick:entry.gutSick,timedOut:entry.gutTimedOut,lockSec:entry.lockSec,trueSerious:entry.bucket?entry.bucket==="serious":null,gutAcuity:entry.gutAcuity,trueAcuity:entry.trueAcuity,gutDispo:entry.gutDispo,finalDispo:entry.finalDispo,trueDispo:entry.trueDispo,ddx:entry.ddx,trueDx:entry.dx,caught:entry.caught,rank:entry.rankOfTrueDx,confidence:entry.confidence}
+    :{gutSick:gut.sick,timedOut:gut.timedOut,lockSec:gut.elapsedSec,trueSerious:seed.bucket?seed.bucket==="serious":(ak.trueAcuity!=null?ak.trueAcuity<=2:null),gutAcuity:gut.acuity,trueAcuity:ak.trueAcuity,gutDispo:gut.gutDispo,finalDispo:answers.finalDispo,trueDispo:ak.trueDispo,ddx:answers.ddx,trueDx:ak.trueDx||seed.dx,caught:grade.caughtInDdx,rank:grade.rankOfTrueDx,confidence:answers.confidence};
   const crits=full?(grade.criticalActions||[]):[];
   const anyMissed=full?crits.some(a=>a.status==="missed"):(entry.critMissed||[]).length>0;
   const needReflect=d.caught===false||anyMissed;
   const caseId=(entry&&entry.caseId)||seed.caseId;
   const [refl,setRefl]=useState((entry&&entry.reflection)||"");const [reflMsg,setReflMsg]=useState(null);
   const [flagOpen,setFlagOpen]=useState(false);const [flagNote,setFlagNote]=useState("");const [flagMsg,setFlagMsg]=useState(entry&&entry.flagged?"Flagged.":null);
-  const timeline=useMemo(()=>full?buildTimeline(enc,grade,answers):[],[full,enc,grade,answers]);
   const saveRefl=()=>{try{if(!DW_().saveReflection(caseId,refl.trim()))throw new Error("Couldn't find this case in your history.");setReflMsg("Saved.")}catch(e){setReflMsg(errMsg(e))}};
   const flag=()=>{try{if(!DW_().flagGrade(caseId,flagNote.trim()))throw new Error("case not in history");setFlagMsg("Flagged. It's marked in your history and export.");setFlagOpen(false)}catch(e){setFlagMsg("Couldn't flag: "+errMsg(e))}};
   const score=full?grade.score:entry.score;
   const sc=score>=80?C.good:score>=60?C.amber:C.redText;
+  // Named only now, never at the doorway: the pattern that came back, and where he met it before.
+  const orig=useMemo(()=>{const o=seed.reexposure&&seed.reexposure.originalCaseId;if(!o)return null;try{return DW_().findHistory(o)||{caseId:o}}catch{return{caseId:o}}},[seed]);
+  const idealEnd=full?Math.max(0,...(ak.idealSequence||[]).map(s=>Number(s.atMin)||0)):0;
+  const slowBenign=full&&d.trueSerious===false&&idealEnd>0&&Number(enc.simMin)>idealEnd*1.5;
+  const ruleUsed=full&&grade.ruleApplied&&grade.ruleApplied.text?grade.ruleApplied:null;
   // Wins/misses only when they add something the timeline doesn't already say.
-  const tlText=timeline.map(it=>[it.text,it.did,it.should].filter(Boolean).join(" ")).join(" \n ").toLowerCase();
+  const tlText=useMemo(()=>full?[...(enc.log||[]).filter(e=>e.k==="doc"||e.k==="event").map(e=>e.t),...crits.map(a=>a.action),...(grade.divergences||[]).flatMap(x=>[x.did,x.shouldHave])].filter(Boolean).join(" \n ").toLowerCase():"",[full,enc,grade]);
   const said=line=>{const w=String(line).toLowerCase().replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(x=>x.length>3);if(!w.length)return false;return w.filter(x=>tlText.includes(x)).length/w.length>=0.7};
   const wins=full?(grade.wins||[]).filter(x=>!said(x)):[],misses=full?(grade.misses||[]).filter(x=>!said(x)):[];
   return(<div className="case-fade" style={{minHeight:"100dvh",maxWidth:560,margin:"0 auto",padding:"0 16px calc(24px + env(safe-area-inset-bottom))"}}>
     <header style={{display:"flex",alignItems:"center",height:56,gap:6}}><IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn><SectionTitle size={22}>{ro?"Past case":"Debrief"}</SectionTitle></header>
     <div className="display" style={{fontSize:30,lineHeight:1.15,color:C.amber,margin:"2px 0 14px"}}>{d.trueDx||"—"}</div>
     {full&&grade.criticalError&&<Card accent={C.red} style={{marginBottom:12,background:C.badBg}}><Label color={C.redText}>Critical error</Label><div style={{fontSize:15,marginTop:4,lineHeight:1.5}}>{grade.criticalError}</div></Card>}
+    {orig&&<Card accent={C.amber} style={{marginBottom:12}}><SectionTitle size={16} color={C.amber}>This one came back</SectionTitle>
+      <div style={{fontSize:15,lineHeight:1.5,marginTop:4}}>You missed {d.trueDx||"this"}{orig.date?` on ${new Date(orig.date).toLocaleDateString()}`:" before"}{orig.ageBand||orig.presentation?` (${[orig.ageBand,orig.presentation?`"${orig.presentation}"`:null].filter(Boolean).join(", ")})`:""}. Today it was {[seed.ageBand,seed.presentation?`"${seed.presentation}"`:null].filter(Boolean).join(", ")||"a different presentation"}{d.caught?" — and you caught it.":"."}</div></Card>}
     <Pairs d={d}/>
+    {ruleUsed&&<div style={{marginTop:12,padding:"10px 12px",borderLeft:`2px solid ${ruleUsed.followed===false?C.amber:C.good}`,background:C.bg2,borderRadius:4,fontSize:15,lineHeight:1.45}}>
+      <span className="mono" style={{fontSize:12,color:C.faint,letterSpacing:"0.08em",marginRight:8}}>YOUR RULE</span>“{ruleUsed.text}”{ruleUsed.followed===true?" — you followed it.":ruleUsed.followed===false?" — you didn't.":""}</div>}
+    {slowBenign&&<div style={{marginTop:12,fontSize:15,lineHeight:1.45,color:C.dim}}>T+{enc.simMin} for a case the key finishes by T+{idealEnd}. In a 25-bed hospital with one nurse, the cost of a long workup is everyone else in the building.</div>}
 
     {full&&<>
       <SectionTitle style={{margin:"24px 0 4px"}}>Timeline</SectionTitle>
-      <div style={{fontSize:14,color:C.dim,padding:"6px 0 8px"}}>T+0 · gut locked: {d.gutSick==null?"—":d.gutSick?"sick":"not sick"}, acuity {d.gutAcuity??"—"}, {d.gutDispo||"—"}{d.timedOut?" (timed out)":""}</div>
-      {timeline.length?timeline.map((it,i)=><TimelineItem key={i} it={it}/>):<div style={{fontSize:14,color:C.faint}}>No orders recorded.</div>}
+      <div style={{fontSize:14,color:C.dim,padding:"6px 0 10px"}}>T+0 · gut locked: {d.gutSick==null?"—":d.gutSick?"sick":"not sick"}, acuity {d.gutAcuity??"—"}, {d.gutDispo||"—"}{d.timedOut?" (timed out)":""}</div>
+      <Ruler enc={enc} grade={grade} answers={answers} ak={ak}/>
     </>}
     {!full&&(entry.critMissed||[]).length+(entry.critLate||[]).length>0&&<Card style={{marginTop:14}}>
       {(entry.critMissed||[]).map(x=><div key={"m"+x} style={{fontSize:14,color:C.redText}}>Missed critical action: {x}</div>)}
@@ -925,7 +1029,7 @@ const Debrief=({data,onNext,onHome})=>{
     </div>}
     {full&&(grade.teachingPoint||ak.teachingPoint||ak.ruralTwist)&&<div style={{marginTop:12,fontSize:15,lineHeight:1.6,color:C.dim}}>
       {grade.teachingPoint||ak.teachingPoint}
-      {ak.ruralTwist&&<div style={{marginTop:8,fontSize:14}}><span className="mono" style={{fontSize:12,letterSpacing:"0.15em",textTransform:"uppercase",color:C.redText,marginRight:6}}>Rural</span>{ak.ruralTwist}</div>}
+      {ak.ruralTwist&&<div style={{marginTop:8,fontSize:14}}><span className="mono" style={{fontSize:12,letterSpacing:"0.15em",textTransform:"uppercase",color:C.amber,marginRight:6}}>Rural</span>{ak.ruralTwist}</div>}
     </div>}
 
     {needReflect&&!(ro&&!refl)&&<div style={{marginTop:22}}>

@@ -247,9 +247,9 @@ async function checkTimeline(page, simMin, where) {
     await page.getByLabel("Free text order or question").fill("Hang broad-spectrum antibiotics now");
     await sendAndWait(page, /antibiotics started/i);
     if (apiCalls.filter((k) => k === "turn").length !== before + 1) throw new Error("free text did not make exactly one turn call");
-    // live avatar state: the turn set diaphoresis 3 → 12 sweat beads in the header figure
-    const beads = await page.locator('header svg circle[fill="#bfe0ff"]').count();
-    if (beads !== 12) throw new Error(`workup avatar is not drawn from enc.physicality (sweat beads ${beads}, want 12)`);
+    // live avatar state: the turn set diaphoresis 3 → the header silhouette carries it
+    const dia = await page.locator("header svg[data-pose]").first().getAttribute("data-diaphoresis");
+    if (dia !== "3") throw new Error(`workup avatar is not drawn from enc.physicality (diaphoresis ${dia}, want 3)`);
     await shot(page, "06-workup-after-send");
 
     console.log("5 commit + debrief");
