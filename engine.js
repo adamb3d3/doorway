@@ -39,7 +39,8 @@
     Stabilize: ["IV access + fluids", "Blood transfusion", "Activate MTP", "TXA now", "Start pressors", "Norepinephrine", "Epinephrine", "Aspirin 324mg", "TPA/lytics", "Cardioversion", "Transcutaneous pacing", "Magnesium sulfate",
       "Broad-spectrum antibiotics", "BiPAP", "Nitroglycerin", "Calcium", "Insulin infusion", "Bicarbonate", "Albuterol neb", "D50/glucose", "Naloxone", "Reversal (PCC/vit K)", "Sedation/analgesia",
       "Adenosine", "Benzodiazepine", "Oxytocin", "Hypertonic saline"],
-    Transfer: ["Call receiving facility", "Request flight", "Request ground ALS", "Send records/imaging", "Talk to family"]
+    Transfer: ["Call receiving facility", "Request flight", "Request ground ALS", "Send records/imaging", "Talk to family"],
+    Time: ["Recheck vitals", "Observe 15 min", "Observe 30 min"]
   };
   var DISPOS = ["Discharge", "Discharge w/ f/u", "Admit inpatient", "Transfer", "Emergent transfer"];
   var GESTALT = ["spot-on", "close", "over", "under"];
@@ -906,6 +907,8 @@
     return enc;
   }
 
+  // Linear between points; past the last point the last segment's slope continues (clamped by the
+  // caller), so an untreated patient keeps getting worse instead of stabilising at T+120.
   function interp(traj, m) {
     if (!traj || !traj.length) return {};
     if (m <= traj[0].t) return assign({}, traj[0]);
@@ -917,7 +920,11 @@
         return o;
       }
     }
-    return assign({}, traj[traj.length - 1]);
+    var last = traj[traj.length - 1];
+    if (traj.length < 2) return assign({}, last);
+    var p = traj[traj.length - 2], dt = last.t - p.t || 1, ext = {};
+    VITAL_KEYS.forEach(function (k) { ext[k] = last[k] + (last[k] - p[k]) * (m - last.t) / dt; });
+    return ext;
   }
 
   // Effect multiplier at minute m for an intervention applied at `at` (A5).
@@ -1006,6 +1013,7 @@
       case "Procedures": return T.procedure;
       case "Stabilize": return label === "Activate MTP" ? T.bloodBank : T.stabilize;
       case "Transfer": return label === "Call receiving facility" ? T.callReceiving : label === "Send records/imaging" ? T.stabilize : 0;
+      case "Time": return label === "Recheck vitals" ? 5 : label === "Observe 15 min" ? 15 : 30;
     }
     return T.history;
   }
@@ -1125,6 +1133,13 @@
         }
         return;
       }
+      if (g === "Time") {
+        // Letting time pass is a decision; it costs minutes and nothing else. The vitals line is
+        // filled in once the batch's end minute is known.
+        costs.push({ min: cost, label: l });
+        entries.push({ k: "clinical", t: l === "Recheck vitals" ? "" : "You wait and watch.", mono: l === "Recheck vitals", atMin: t0 + cost, recheck: l === "Recheck vitals" });
+        return;
+      }
       if (g === "Transfer") {
         if (l === "Request flight") {
           if (cond.flight !== "available") {
@@ -1218,13 +1233,32 @@
         receivingCalls: receivingCalls, accepted: accepted, ctTechIn: ctTechIn, physicality: physicality
       });
       var vAfter = vitalsAt(next, t1);
-      if (maxC.min > 0) entries.push({ k: "time", t: "+" + maxC.min + " min — " + maxC.label, atMin: t1, vitals: vAfter });
+      entries.forEach(function (e) { if (e.recheck) { e.t = "Recheck: " + fmtVitals(vitalsAt(next, e.atMin)); delete e.recheck; } });
+      if (maxC.min > 0) entries.push({ k: "time", t: "+" + maxC.min + " min — " + maxC.label, atMin: t1, from: t0, vitals: vAfter });
 
-      deteriorationEvents(vBefore, vAfter, c.seed && c.seed.ageBand).forEach(function (e) {
-        e.atMin = t1;
-        events.push(e);
-        entries.push({ k: "event", t: e.text, atMin: t1 });
-      });
+      // Events are stamped at the minute the vital crossed, found by stepping the model in
+      // 5-minute increments through the batch, not at the end of the batch.
+      var band = c.seed && c.seed.ageBand;
+      var firedVital = {};
+      var prevV = vBefore;
+      for (var m = t0 + 5; m <= t1 + 4; m += 5) {
+        var mm = Math.min(m, t1);
+        var vm = mm === t1 ? vAfter : vitalsAt(next, mm);
+        deteriorationEvents(prevV, vm, band).forEach(function (e) {
+          if (firedVital[e.vital]) return;
+          firedVital[e.vital] = true;
+          e.atMin = mm;
+          events.push(e);
+          entries.push({ k: "event", t: e.text, atMin: mm });
+        });
+        prevV = vm;
+        if (mm === t1) break;
+      }
+      if (!firedVital.GCS && vBefore.GCS - vAfter.GCS >= 2) {
+        var ge = { kind: "deteriorating", vital: "GCS", from: vBefore.GCS, to: vAfter.GCS, text: "GCS " + vAfter.GCS + " — falling", atMin: t1 };
+        events.push(ge);
+        entries.push({ k: "event", t: ge.text, atMin: t1 });
+      }
 
       if (transport && transport.status === "en route" && t1 >= transport.etaMin) {
         transport = assign({}, transport, { status: "at bedside" });
@@ -1477,7 +1511,12 @@
     for (var d in sums) if (has(sums, d)) byDomain[d].avg = Math.round(sums[d] / byDomain[d].n);
     var t = now();
     var mq = s.missQueue.map(function (m) { return assign({}, m, { isDue: m.stage < (m.due || []).length && m.due[m.stage] <= t }); });
+    var rules = [];
+    for (var ri = h.length - 1; ri >= 0 && rules.length < 5; ri--) {
+      if (h[ri] && h[ri].carryForward) rules.push({ caseId: h[ri].caseId, date: h[ri].date, dx: h[ri].dx, rule: h[ri].carryForward });
+    }
     return {
+      rules: rules,
       cases: h.length,
       history: h,
       streak: s.streak,
@@ -1510,11 +1549,14 @@
       presentation: seed.presentation, ageBand: seed.ageBand,
       reexposureOf: seed.reexposure ? seed.reexposure.originalCaseId : null,
       gutSick: enc.gut ? enc.gut.sick : null, gutAcuity: enc.gut ? enc.gut.acuity : null, gutTimedOut: enc.gut ? !!enc.gut.timedOut : false,
+      lockSec: enc.gut && isFinite(num(enc.gut.elapsedSec, NaN)) ? num(enc.gut.elapsedSec) : null,
+      trueSerious: seed.bucket ? seed.bucket === "serious" : null, simMin: enc.simMin || 0,
       trueAcuity: c.answerKey.trueAcuity, gutDispo: enc.gut ? enc.gut.gutDispo : null,
       finalDispo: final.finalDispo || null, trueDispo: c.answerKey.trueDispo, dispoOk: !!g.dispoOk,
       ddx: final.ddx || [], confidence: final.confidence === undefined ? null : final.confidence,
       caught: !!g.caughtInDdx, rankOfTrueDx: g.rankOfTrueDx === undefined ? null : g.rankOfTrueDx,
       score: g.score, critMissed: critMissed, critLate: critLate, firstCritMin: firstCrit,
+      carryForward: str(g.carryForward, ""),
       reflection: extras.reflection || "", flagged: false, flagNote: ""
     };
     var s = rawStats();
@@ -1659,6 +1701,7 @@
     CHIPS: CHIPS,
     DISPOS: DISPOS,
     NORMALS: NORMALS,
+    chipCost: chipCost,
     newCase: newCase,
     prefetch: prefetch,
     takePrefetched: takePrefetched,

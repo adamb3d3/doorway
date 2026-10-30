@@ -190,12 +190,60 @@ function vcase(ivs, traj) {
   });
 }
 
-test("vitalsAt: linear interpolation and hold past last point", function () {
-  var enc = DW.startEncounter(vcase());
+test("vitalsAt: linear interpolation; the last segment's slope continues past the last point, clamped", function () {
+  var enc = DW.startEncounter(vcase()); // HR 100→130, SBP 100→70 over 30 min
   assert.strictEqual(DW.vitalsAt(enc, 15).HR, 115);
   assert.strictEqual(DW.vitalsAt(enc, 15).SBP, 85);
-  assert.strictEqual(DW.vitalsAt(enc, 90).HR, 130);
+  assert.strictEqual(DW.vitalsAt(enc, 60).HR, 160, "untreated decline continues");
+  assert.strictEqual(DW.vitalsAt(enc, 60).SBP, 40);
+  assert.strictEqual(DW.vitalsAt(enc, 600).SBP, 0, "clamped at the floor");
   assert.strictEqual(DW.vitalsAt(enc, 0).MAP, Math.round((100 + 120) / 3));
+  var flat = [{ t: 0, HR: 80, SBP: 120, DBP: 70, RR: 16, SpO2: 98, Temp: 98.6, GCS: 15 }]; // t=0 is replaced by vitals0 (HR 100)
+  assert.strictEqual(DW.vitalsAt(DW.startEncounter(vcase([], flat)), 300).HR, 100, "a single point holds");
+});
+
+test("Time chips: recheck and observe move the clock with no model call and log the vitals", async function () {
+  reset();
+  var enc = readyEnc(vcase());
+  var r = await DW.act(enc, { chips: [{ group: "Time", label: "Recheck vitals" }] });
+  assert.strictEqual(calls.length, 0);
+  assert.strictEqual(r.enc.simMin, 5);
+  var line = r.entries.filter(function (e) { return /^Recheck: HR 105 BP 95/.test(e.t); })[0];
+  assert(line && line.mono && line.atMin === 5, JSON.stringify(r.entries));
+  var r2 = await DW.act(r.enc, { chips: [{ group: "Time", label: "Observe 30 min" }, { group: "History", label: "Allergies?" }] });
+  assert.strictEqual(r2.enc.simMin, 35, "max of the batch");
+  assert(r2.entries.some(function (e) { return e.k === "time" && e.from === 5 && e.atMin === 35; }), "time entry carries the batch start");
+  assert.strictEqual(DW.chipCost("Time", "Observe 15 min"), 15);
+  assert.strictEqual(DW.chipCost("Imaging", "CT head"), C.FACILITY.timesMin.ct);
+});
+
+test("events are stamped at the crossing minute, not the end of the batch", async function () {
+  reset();
+  var enc = readyEnc(vcase()); // SBP 100→70 over 30 min: 90 at T+10, below 90 from T+15
+  var r = await DW.act(enc, { chips: [{ group: "Labs", label: "CBC+BMP" }] }); // +45
+  var bp = r.events.filter(function (e) { return e.vital === "BP"; })[0];
+  assert(bp, "BP event fires");
+  assert.strictEqual(bp.atMin, 15, "stamped at the 5-minute step where it crossed, not 45");
+  assert(r.entries.some(function (e) { return e.k === "event" && e.atMin === 15; }));
+  assert.strictEqual(r.events.filter(function (e) { return e.vital === "BP"; }).length, 1, "fires once");
+  // a slow GCS slide that never drops 2 within a 5-minute step still fires once at the end
+  var slow = [{ t: 0, HR: 90, SBP: 120, DBP: 70, RR: 16, SpO2: 98, Temp: 98.6, GCS: 15 }, { t: 60, HR: 90, SBP: 120, DBP: 70, RR: 16, SpO2: 98, Temp: 98.6, GCS: 11 }];
+  var r2 = await DW.act(readyEnc(vcase([], slow)), { chips: [{ group: "Labs", label: "CBC+BMP" }] });
+  var g = r2.events.filter(function (e) { return e.vital === "GCS"; });
+  assert.strictEqual(g.length, 1, JSON.stringify(r2.events));
+});
+
+test("history entry keeps the lock time, the carry-forward rule and the mode; stats lists the last rules", function () {
+  reset();
+  var enc = readyEnc(makeCase({ seed: 111, conditions: cond() }));
+  var g = DW._.finalizeGrade(Object.assign(FX.fakeGrade(70), { carryForward: "Hang antibiotics before imaging." }), enc, DW._.computeCritical(enc), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  var st = DW.recordResult(enc, g, {});
+  var h = st.history[0];
+  assert.strictEqual(typeof h.lockSec, "number");
+  assert.strictEqual(h.carryForward, "Hang antibiotics before imaging.");
+  assert.strictEqual(typeof h.trueSerious, "boolean");
+  assert.strictEqual(st.rules.length, 1);
+  assert.strictEqual(st.rules[0].rule, "Hang antibiotics before imaging.");
 });
 
 test("vitalsAt: delta ramps over onset", function () {
