@@ -1,0 +1,6 @@
+design/
+runs/
+test/
+shots/
+SPEC.md
+.env

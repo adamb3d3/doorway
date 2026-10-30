@@ -90,6 +90,13 @@ const RESULTS = {
 function userText(body) {
   try { const m = body && body.messages && body.messages[0]; return typeof m.content === "string" ? m.content : ""; } catch (e) { return ""; }
 }
+// System prompt (string or content blocks) plus the user message: the turn prompt keeps
+// persona, history and interventions in the system blocks.
+function allText(body) {
+  let sys = "";
+  try { const x = body && body.system; sys = Array.isArray(x) ? x.map((b) => (b && b.text) || "").join("\n") : String(x || ""); } catch (e) { sys = ""; }
+  return sys + "\n" + userText(body);
+}
 function seedOf(body) {
   const t = userText(body);
   const i = t.indexOf("SEED:\n");
@@ -100,7 +107,7 @@ function seedOf(body) {
 }
 // One-line "LABEL: <json>" sections of the grade / turn prompts.
 function section(body, label) {
-  const t = userText(body);
+  const t = allText(body);
   const re = new RegExp("^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ".*?: ([\\[{].*)$", "m");
   const m = t.match(re);
   if (!m) return null;
@@ -227,7 +234,9 @@ function defaultGrade(body) {
   };
 }
 
-const DEFAULTS = { case: defaultCase, results: defaultResults, turn: defaultTurn, grade: defaultGrade };
+function defaultReview() { return { ok: true, issues: [] }; }
+
+const DEFAULTS = { case: defaultCase, results: defaultResults, review: defaultReview, turn: defaultTurn, grade: defaultGrade };
 const counters = {};
 
 function wrap(text) {
