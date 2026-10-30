@@ -1066,7 +1066,7 @@ const Debrief=({data,onNext,onHome})=>{
     </div>
 
     <div style={{marginTop:16,display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap"}}>
-      <span className="mono" style={{fontSize:13,color:C.faint}}>Score <span style={{fontSize:16,color:sc,fontWeight:700}}>{score??"—"}</span>/100</span>
+      <span className="mono" style={{fontSize:13,color:C.faint}}>Score <span style={{fontSize:16,color:sc,fontWeight:700}}>{score??"—"}</span>/100 <span style={{fontSize:12}}>· give or take 5</span></span>
       {full&&<span className="mono" style={{fontSize:12,color:C.faint,lineHeight:1.6}}>gestalt {grade.gestaltCal||"—"} · workup {grade.workup||"—"} · stabilization {grade.stabilizationGrade||"—"}{grade.transferPackagingOk!=null?` · packaging ${grade.transferPackagingOk?"ok":"short"}`:""}</span>}
     </div>
     <div style={{marginTop:24,display:"flex",flexDirection:"column",gap:8}}>
