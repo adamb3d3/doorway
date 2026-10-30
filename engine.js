@@ -1055,6 +1055,7 @@
     lines.push("PENDING (ordered, not back yet — do not report or guess their values): " + JSON.stringify((enc.pending || []).map(function (p) { return p.label + " back ~T+" + p.readyAt; })));
     lines.push("ALREADY RESULTED (a new order for these is a repeat): " + JSON.stringify(Object.keys(enc.resulted || {}).filter(function (l) { return !pend[l]; })));
     lines.push("APPLIED SO FAR: " + JSON.stringify((enc.applied || []).map(function (a) { return { id: a.id, atMin: a.atMin }; })));
+    if (enc.doneNow && enc.doneNow.length) lines.push("DONE THIS TURN BY BUTTON (already carried out and reported to him in the log; do not narrate these again, and do not list them in interventionsApplied): " + JSON.stringify(enc.doneNow));
     if (enc.transport) lines.push("TRANSPORT: " + JSON.stringify(enc.transport));
     if (enc.accepted) lines.push("RECEIVING FACILITY: accepted.");
     lines.push("LOG SO FAR:\n" + (enc.log || []).map(function (e) { return "[T+" + (e.atMin || 0) + "] " + e.k.toUpperCase() + ": " + e.t; }).join("\n"));
@@ -1228,7 +1229,11 @@
     var physicality = enc.physicality || c.physicality;
     var modelPromise = Promise.resolve(null);
     if (needModel) {
-      var encForPrompt = assign({}, enc, { applied: applied, resulted: enc.resulted, pending: pending, transport: transport, accepted: accepted, log: (enc.log || []).concat(entries) });
+      var doneNow = applied.filter(function (a) { return a.atMin === t0 && a.source === "chip"; }).map(function (a) {
+        for (var k = 0; k < ivs.length; k++) if (ivs[k].id === a.id) return ivs[k].label;
+        return a.id;
+      });
+      var encForPrompt = assign({}, enc, { applied: applied, resulted: enc.resulted, pending: pending, transport: transport, accepted: accepted, doneNow: doneNow, log: (enc.log || []).concat(entries) });
       var p = buildTurnPrompt(encForPrompt, modelItems, text, vBefore);
       modelPromise = callJSON("turn", p.system, p.user, CONFIG.maxTokens.turn, function (r) {
         if (!r || typeof r !== "object") throw invalid("turn not an object");

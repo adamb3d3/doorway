@@ -19,6 +19,16 @@ A phone-first web app. You see a patient from the doorway and commit to sick or 
 - One model everywhere: Claude Sonnet 5.5 (`claude-sonnet-5-5`).
 - Installable on a phone home screen and loads on a weak connection once cached.
 
+## What changed in v3.2
+
+- Time is visible and spent on purpose. Every order shows its cost, results carry their own minute, each batch opens with its clock line ("T+38 → T+83 · CT head"), tick rows show the patient during long waits, and deterioration events are stamped at the minute the vital crossed its limit. Labs and send-out imaging are sent and come back later; bedside tests answer now. Time passes through what he does and through the Time chips (Recheck vitals, Observe 15/30). An untreated patient keeps getting worse after T+120.
+- The doorway is the patient first: a posture silhouette (no face) with the name and complaint over its lower edge, the impression beneath, vitals a beat later. Nothing on it describes the case. On Lock the patient slides away.
+- The debrief draws two columns on one clock: the answer key's ideal sequence beside his orders, critical-action windows as bands, lateness as the gap. The grader is given the rules he wrote for himself after earlier cases and says whether he followed one.
+- The commit sheet takes a plan at disposition (prescriptions, last orders, return precautions); it runs as his final orders before grading.
+- Shift trains calibration and is the only mode that feeds the acuity grid; Drill trains speed (timer on, hostile conditions, lookalikes every time) and reports time to first critical action. Missed patterns come back unannounced, on about one pick in three once due, and are named only in the debrief.
+- Red means a patient getting worse or a wrong call; everything else is bone or amber. Primary buttons are bone; Lock and Submit keep the red.
+- Sonnet 5.5 and Opus 5.5 behind the proxy, with per-kind model, thinking effort and token headroom; refusals surface readably; an optional clinical-review call checks each generated case; prompt caching on the static blocks.
+
 ## Architecture
 
 No build step, no database, no login. Files are uploaded to GitHub and Vercel serves them.
@@ -27,7 +37,7 @@ No build step, no database, no login. Files are uploaded to GitHub and Vercel se
 |---|---|
 | `index.html` | Shell: phone and home-screen tags, fonts, pinned React 18.3.1 and Babel 7.29.12 from unpkg, a fallback message if the app fails to start. |
 | `cases.js` | Case catalog, facility profile, conditions roll, case selection. |
-| `engine.js` | API client, prompts, clock and vitals model, grading, storage, miss queue, export and import. |
+| `engine.js` | API client, prompts, clock and vitals model (pending results, Time chips, crossing-minute events), grading, stats, storage, miss queue, export and import. |
 | `app.jsx` | The React UI, compiled in the browser. |
 | `api/claude.js` | Serverless proxy to the Anthropic API. Allows Sonnet 5.5 and Opus 5.5, forwards an allowlisted `output_config` (effort, JSON schema) and `thinking`, caps output tokens by call kind, limits each IP per day, refuses calls from other sites, and accepts a user's own key. |
 | `design/` | Three independent design reviews (UX, game design, visual) and the v3.2 brief built from them. Not deployed. |

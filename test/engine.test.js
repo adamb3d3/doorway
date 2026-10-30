@@ -413,6 +413,14 @@ test("chip exact matching applies intervention; free text never applies locally"
   assert.strictEqual(r3.enc.simMin, r2.enc.simMin, "re-apply costs no time");
 });
 
+test("a chip-applied intervention sent with free text is named as already done, so the model does not re-narrate it", async function () {
+  reset();
+  var ivs = [{ id: "fluids", label: "30 mL/kg crystalloid", chips: ["IV access + fluids"], effect: { SBP: 10 }, onsetMin: 5 }];
+  await DW.act(readyEnc(vcase(ivs)), { chips: [{ group: "Stabilize", label: "IV access + fluids" }], text: "how does she look?" });
+  assert.strictEqual(calls.length, 1);
+  assert(/DONE THIS TURN BY BUTTON.*30 mL\/kg crystalloid/.test(calls[0].body.messages[0].content));
+});
+
 test("model interventionsApplied: only known ids applied", async function () {
   reset();
   var ivs = [{ id: "abx", label: "abx", chips: ["Broad-spectrum antibiotics"], effect: {}, onsetMin: 30 }];
