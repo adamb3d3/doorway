@@ -63,9 +63,9 @@ test("model allowlist: accepts claude-sonnet-5-5 and sets headers", async () => 
 test("max_tokens capped by kind and body rebuilt from allowed keys only", async () => {
   await call({ headers: { "x-dw-kind": "case" }, body: { model: "claude-sonnet-5-5", max_tokens: 64000, system: "sys", messages: [{ role: "user", content: "x" }], tools: [{}], temperature: 2, stream: true } });
   const b = calls[0].body;
-  assert.equal(b.max_tokens, 4000);
+  assert.equal(b.max_tokens, 8000);
   assert.deepEqual(Object.keys(b).sort(), ["max_tokens", "messages", "model", "system"]);
-  for (const [kind, cap] of [["results", 4000], ["turn", 1500], ["grade", 1500]]) {
+  for (const [kind, cap] of [["results", 8000], ["turn", 1500], ["grade", 1500]]) {
     await call({ headers: { "x-dw-kind": kind }, body: { model: "claude-sonnet-5-5", max_tokens: 9000, messages: [{ role: "user", content: "x" }] } });
     assert.equal(calls.at(-1).body.max_tokens, cap, kind);
   }

@@ -7,7 +7,7 @@
 // - Model allowlist: only claude-sonnet-5-5.
 // - The upstream body is rebuilt from {model, max_tokens, system, messages};
 //   anything else the client sends is dropped. max_tokens is capped by kind
-//   (case/results 4000, turn/grade 1500).
+//   (case/results 8000, turn/grade 1500).
 // - Origin check: if the request carries Origin (or, failing that, Referer), its
 //   host must be the request's own host, VERCEL_URL, or one listed in
 //   ALLOWED_ORIGIN (comma-separated). Requests with neither header pass.
@@ -26,8 +26,8 @@
 
 const ALLOWED_MODELS = ["claude-sonnet-5-5"];
 const KINDS = {
-  case: { limit: 12, maxTokens: 4000, noun: "new cases" },
-  results: { limit: 12, maxTokens: 4000, noun: "results sheets" },
+  case: { limit: 12, maxTokens: 8000, noun: "new cases" },
+  results: { limit: 12, maxTokens: 8000, noun: "results sheets" },
   turn: { limit: 400, maxTokens: 1500, noun: "patient turns" },
   grade: { limit: 15, maxTokens: 1500, noun: "grades" },
 };

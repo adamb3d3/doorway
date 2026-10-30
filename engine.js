@@ -211,6 +211,9 @@
               .filter(function (c) { return c && c.type === "text"; })
               .map(function (c) { return c.text; }).join("\n");
             if (!text && data && data._raw) text = data._raw;
+            if (data && data.stop_reason === "max_tokens") {
+              throw apiError("The model ran out of room before finishing its " + kind + " (" + maxTokens + " tokens).", { truncated: true, badJson: true });
+            }
             return text;
           });
         }, function (err) {
@@ -230,7 +233,7 @@
     function attempt(n) {
       return callClaude(kind, system, userContent, maxTokens).then(function (text) {
         var parsed;
-        try { parsed = extractJSON(text); } catch (e) { throw apiError("The model's " + label + " was not readable JSON.", { badJson: true }); }
+        try { parsed = extractJSON(text); } catch (e) { throw apiError("The model's " + label + " was not readable JSON (" + String(text || "").slice(0, 80).replace(/\s+/g, " ") + "...).", { badJson: true }); }
         return validate ? validate(parsed) : parsed;
       }).catch(function (e) {
         var again = e && (e.badJson || e.invalid);
@@ -639,11 +642,11 @@
   function generateCase(seed) {
     var userA = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\n" + conditionsText(seed.conditions, seed.transferTwist) +
       "\n\nWrite the case now. JSON only.";
-    return callJSON("case", CASE_SYSTEM, userA, 4000, function (raw) { return normalizeCaseA(raw, seed); }, "case").then(function (caseA) {
+    return callJSON("case", CASE_SYSTEM, userA, 8000, function (raw) { return normalizeCaseA(raw, seed); }, "case").then(function (caseA) {
       var forB = { persona: caseA.persona, vitals0: caseA.vitals0, trajectory: caseA.trajectory, physicality: caseA.physicality, answerKey: { trueDx: caseA.answerKey.trueDx } };
       var userB = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\nCASE:\n" + JSON.stringify(forB) +
         "\n\nWrite {\"results\":{...}} for every label. Results reflect time 0. JSON only.";
-      return callJSON("results", RESULTS_SYSTEM, userB, 4000, function (raw) {
+      return callJSON("results", RESULTS_SYSTEM, userB, 8000, function (raw) {
         if (!raw || typeof raw.results !== "object") throw invalid("missing results");
         return raw;
       }, "results sheet").then(function (rawB) {

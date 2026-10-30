@@ -143,14 +143,14 @@ test("miss-queue re-exposure: due item wins, different presentation and age band
 
 test("conditions roll: night share ≈40%, flight mix, CT logic", function () {
   var rng = C.mulberry32(99), night = 0, wx = 0, ctNightUp = 0, nights = 0;
-  for (var i = 0; i < 4000; i++) {
+  for (var i = 0; i < 8000; i++) {
     var c = C.rollConditions(rng);
     if (c.hour >= 19 || c.hour < 7) { night++; nights++; if (c.ctAvailable) ctNightUp++; } else assert(c.ctAvailable);
     if (c.flight === "weather") wx++;
     assert(c.groundEta >= 60 && c.groundEta <= 90 && c.obNegUnits >= 0 && c.obNegUnits <= 4);
   }
-  assert(Math.abs(night / 4000 - 0.4) < 0.03, "night " + night / 4000);
-  assert(Math.abs(wx / 4000 - 0.2) < 0.03);
+  assert(Math.abs(night / 8000 - 0.4) < 0.03, "night " + night / 8000);
+  assert(Math.abs(wx / 8000 - 0.2) < 0.03);
   assert(Math.abs(ctNightUp / nights - 0.25) < 0.04);
   assert(/CT/.test(C.conditionsLabel(C.rollConditions(rng))));
 });
@@ -506,7 +506,7 @@ test("newCase: two calls (case, results) with right headers, tokens and model", 
   assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "results"]);
   assert.strictEqual(calls[0].headers["X-User-API-Key"], "sk-user");
   assert.strictEqual(calls[0].headers["Content-Type"], "application/json");
-  assert.strictEqual(calls[0].body.max_tokens, 4000);
+  assert.strictEqual(calls[0].body.max_tokens, 8000);
   assert.strictEqual(calls[0].url, "/api/claude");
   assert(/time 0/i.test(calls[0].body.system) && /CONDITIONS FOR THIS CASE/.test(calls[0].body.messages[0].content));
   assert(c.seed && c.persona && c.results && c.startedAt);
