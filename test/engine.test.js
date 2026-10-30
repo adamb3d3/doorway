@@ -59,6 +59,9 @@ function makeCase(seedOpts, tweak) {
 var DAY_COND = { hour: 10, minute: 0, ctAvailable: true, ctOnCall: false, flight: "available", groundEta: 75, obNegUnits: 2, tertiaryDiversion: false, nurseCount: 2 };
 function cond(patch) { return Object.assign({}, DAY_COND, patch || {}); }
 function readyEnc(c) { return DW.lockGut(DW.startEncounter(c), { sick: true, acuity: 2, gutDispo: "Transfer" }); }
+// system prompts are content blocks; join their text for assertions
+function sysText(body) { var s = body.system; return Array.isArray(s) ? s.map(function (b) { return b.text; }).join("\n") : String(s || ""); }
+function lastSysBlock(body) { var s = body.system; return Array.isArray(s) ? s[s.length - 1] : null; }
 
 // ── Selection ───────────────────────────────────────────────────────────────
 test("catalog integrity: ids unique, lookalikes resolve, domains exact", function () {
@@ -506,9 +509,14 @@ test("newCase: two calls (case, results) with right headers, tokens and model", 
   assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "results"]);
   assert.strictEqual(calls[0].headers["X-User-API-Key"], "sk-user");
   assert.strictEqual(calls[0].headers["Content-Type"], "application/json");
-  assert.strictEqual(calls[0].body.max_tokens, 8000);
+  assert.strictEqual(calls[0].body.max_tokens, 16000);
+  assert.strictEqual(calls[1].body.max_tokens, 16000);
   assert.strictEqual(calls[0].url, "/api/claude");
-  assert(/time 0/i.test(calls[0].body.system) && /CONDITIONS FOR THIS CASE/.test(calls[0].body.messages[0].content));
+  assert.strictEqual(calls[0].body.model, "claude-sonnet-5-5");
+  assert.deepStrictEqual(calls[0].body.output_config, { effort: "high" }, "effort per kind; no schema unless structured");
+  assert.deepStrictEqual(calls[1].body.output_config, { effort: "medium" });
+  assert.deepStrictEqual(lastSysBlock(calls[0].body).cache_control, { type: "ephemeral" }, "static system prompt is cache-marked");
+  assert(/time 0/i.test(sysText(calls[0].body)) && /CONDITIONS FOR THIS CASE/.test(calls[0].body.messages[0].content));
   assert(c.seed && c.persona && c.results && c.startedAt);
   assert.strictEqual(c.physicality.fitz, c.seed.fitz);
   DW.settings.set({ apiKey: "" });
@@ -757,6 +765,140 @@ test("act/lockGut report saveFailed when storage refuses the write", async funct
   var r2 = await DW.act(r.enc, { chips: [{ group: "History", label: "Medications?" }] });
   assert.strictEqual(r2.saveFailed, false);
   assert.strictEqual(DW.lockGut(r2.enc, { sick: true }).saveFailed, undefined);
+});
+
+// ── Live-model plumbing: refusals, models, structured outputs, review, caching ──
+test("refusal: readable error, flagged, not retried", async function () {
+  reset();
+  overrides.push(function () { return { status: 200, body: { content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "general_harms" } } }; });
+  await assert.rejects(DW.newCase({}), function (e) { return e.refusal === true && e.category === "general_harms" && /declined/.test(e.message); });
+  assert.strictEqual(calls.length, 1, "a refusal is not retried");
+  reset();
+  overrides.push(function () { return { status: 200, body: { content: [{ type: "text", text: "" }], stop_reason: "refusal", stop_details: null } }; });
+  await assert.rejects(DW.newCase({}), function (e) { return e.refusal === true && e.category === null; });
+});
+
+test("per-kind model and effort go in the body; thinking blocks in the reply are ignored", async function () {
+  reset();
+  DW._.CONFIG.models.grade = "claude-opus-5-5";
+  DW._.CONFIG.effort.grade = "xhigh";
+  try {
+    overrides.push(function () { return { status: 200, body: { content: [{ type: "thinking", thinking: "" }, { type: "text", text: JSON.stringify(FX.fakeGrade(71)) }], stop_reason: "end_turn" } }; });
+    var g = await DW.grade(readyEnc(makeCase({ seed: 101, conditions: cond() })), { ddx: ["x"], confidence: 50, finalDispo: "Transfer" });
+    assert.strictEqual(g.score, 71);
+    assert.strictEqual(calls[0].body.model, "claude-opus-5-5");
+    assert.strictEqual(calls[0].body.max_tokens, 8000);
+    assert.deepStrictEqual(calls[0].body.output_config, { effort: "xhigh" });
+  } finally { DW._.CONFIG.models.grade = DW.MODEL; DW._.CONFIG.effort.grade = "high"; }
+});
+
+test("structured outputs: schema sent as output_config.format for every kind when enabled", async function () {
+  reset();
+  DW._.CONFIG.structured = true;
+  try {
+    var c = await DW.newCase({});
+    var enc = readyEnc(c);
+    var r = await DW.act(enc, { text: "how do you feel?" });
+    await DW.grade(r.enc, { ddx: ["x"], confidence: 50, finalDispo: "Transfer" });
+    var kinds = calls.map(function (x) { return x.kind; });
+    assert.deepStrictEqual(kinds, ["case", "results", "turn", "grade"]);
+    calls.forEach(function (x) {
+      var f = x.body.output_config.format;
+      assert.strictEqual(f.type, "json_schema", x.kind);
+      assert.strictEqual(f.schema.type, "object");
+      assert.strictEqual(f.schema.additionalProperties, false);
+      assert(Array.isArray(f.schema.required) && f.schema.required.length > 0, x.kind + " required");
+    });
+    var S = DW._.SCHEMAS;
+    assert.deepStrictEqual(Object.keys(S.results.properties.results.properties).sort(), DW.CHIPS.Exam.concat(DW.CHIPS.Labs, DW.CHIPS.Imaging).sort(), "results schema lists every result label");
+    assert.deepStrictEqual(Object.keys(S["case"].properties.history.properties), DW.CHIPS.History);
+    assert.deepStrictEqual(S["case"].properties.answerKey.properties.trueDispo.enum, DW.DISPOS);
+    assert.deepStrictEqual(S.turn.properties.physicality.required, [], "turn physicality keys are all optional");
+    // schemas use only the supported subset
+    var txt = JSON.stringify(S);
+    ["minimum", "maximum", "minLength", "maxLength", "$ref", "pattern"].forEach(function (k) { assert(txt.indexOf('"' + k + '"') < 0, "unsupported keyword " + k); });
+  } finally { DW._.CONFIG.structured = false; }
+});
+
+test("review pass: ok → served; blocking issue → regenerate once with the issues; review failure never blocks", async function () {
+  reset();
+  DW._.CONFIG.review = true;
+  try {
+    var c = await DW.newCase({});
+    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "results"]);
+    assert.strictEqual(c.review.regenerated, false);
+    assert.strictEqual(c.review.first.ok, true);
+    assert(/answerKey/.test(calls[1].body.messages[0].content) && /CHECK FOR/.test(sysText(calls[1].body)));
+    reset();
+    var dflt = function () { return undefined; }; // overrides are consumed one per call, in call order
+    overrides.push(dflt, function () { return { status: 200, body: FX.wrap({ ok: false, issues: [{ field: "answerKey.criticalActions[0]", problem: "TNK dose wrong", fix: "0.25 mg/kg max 25 mg", severity: "block" }, { field: "persona.voice", problem: "flat", fix: "", severity: "warn" }] }) }; });
+    var c2 = await DW.newCase({});
+    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "case", "review", "results"]);
+    assert.strictEqual(c2.review.regenerated, true);
+    assert.strictEqual(c2.review.first.issues.length, 2);
+    assert.strictEqual(c2.review.second.ok, true);
+    assert(/clinical reviewer flagged/.test(calls[2].body.messages[0].content) && /TNK dose wrong/.test(calls[2].body.messages[0].content), "second draft is told what to fix");
+    assert(!/clinical reviewer flagged/.test(calls[0].body.messages[0].content));
+    reset();
+    var fail = function () { return { status: 500, body: {} }; };
+    overrides.push(dflt, fail, fail);
+    var c3 = await DW.newCase({});
+    assert(c3.persona && c3.review.first === null && /error|500/.test(c3.review.error), "review failure degrades");
+    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "review", "results"]);
+  } finally { DW._.CONFIG.review = false; }
+});
+
+test("turn prompt: only ordered results reach the model; per-case block is cached; nothing else leaks", async function () {
+  reset();
+  var c = makeCase({ seed: 102, conditions: cond() });
+  c.results["Lipase"] = "LIPASE-SECRET-77";
+  c.results["Lactate"] = "LACTATE-VISIBLE-4.6";
+  c.results["CT head"] = "CT-SECRET-BLEED";
+  var enc = readyEnc(c);
+  var r1 = await DW.act(enc, { chips: [{ group: "Labs", label: "Lactate" }] }); // served locally
+  assert.strictEqual(calls.length, 0);
+  var r2 = await DW.act(r1.enc, { text: "what do you make of the lactate?" });
+  var body = JSON.stringify(calls[0].body);
+  assert(body.indexOf("LACTATE-VISIBLE-4.6") >= 0, "ordered result is on the sheet");
+  assert(body.indexOf("LIPASE-SECRET-77") < 0 && body.indexOf("CT-SECRET-BLEED") < 0, "unordered results are not");
+  assert(body.indexOf("answerKey") < 0 && body.indexOf("teachingPoint") < 0);
+  var sys = calls[0].body.system;
+  assert(Array.isArray(sys) && sys.length === 2 && /PERSONA/.test(sys[1].text) && /HISTORY SHEET/.test(sys[1].text), "persona + history in the per-case block");
+  assert.deepStrictEqual(sys[1].cache_control, { type: "ephemeral" });
+  assert.strictEqual(sys[0].cache_control, undefined);
+  assert(/LOG SO FAR/.test(calls[0].body.messages[0].content) && /CURRENT VITALS/.test(calls[0].body.messages[0].content));
+  // a repeat of an ordered test still gets its time-0 value
+  var r3 = await DW.act(r2.enc, { chips: [{ group: "Labs", label: "Lactate" }] });
+  assert(JSON.stringify(calls[1].body).indexOf("LACTATE-VISIBLE-4.6") >= 0 && /REPEAT/.test(calls[1].body.messages[0].content));
+  // a label missing from the sheet is ordered through the model without a placeholder value
+  var c4 = makeCase({ seed: 103, conditions: cond() }, function (raw) { delete raw.results["Troponin"]; });
+  await DW.act(readyEnc(c4), { chips: [{ group: "Labs", label: "Troponin" }] });
+  assert(JSON.stringify(calls[2].body).indexOf(DW._.FALLBACK) < 0);
+  assert(r3.enc);
+});
+
+test("cache off: no cache_control anywhere", async function () {
+  reset();
+  DW._.CONFIG.cache = false;
+  try {
+    await DW.newCase({});
+    calls.forEach(function (x) { assert(JSON.stringify(x.body).indexOf("cache_control") < 0, x.kind); });
+  } finally { DW._.CONFIG.cache = true; }
+});
+
+test("onCall hook sees every exchange with timing, usage and stop reason", async function () {
+  reset();
+  var seen = [];
+  DW._.CONFIG.onCall = function (info) { seen.push(info); };
+  try {
+    overrides.push(function () { return { status: 529, body: { error: "overloaded" } }; });
+    await DW.newCase({});
+    assert.deepStrictEqual(seen.map(function (s) { return s.kind + ":" + s.status + ":" + s.attempt; }), ["case:529:0", "case:200:1", "results:200:0"]);
+    assert(typeof seen[0].ms === "number" && seen[0].error && seen[1].request.model === "claude-sonnet-5-5" && seen[1].response.content);
+    DW._.CONFIG.onCall = function () { throw new Error("hook bug"); };
+    var c = await DW.newCase({});
+    assert(c.persona, "a throwing hook never breaks a call");
+  } finally { DW._.CONFIG.onCall = null; }
 });
 
 // ── Run ─────────────────────────────────────────────────────────────────────

@@ -14,7 +14,20 @@
   var MODEL = "claude-sonnet-5-5";
   var FALLBACK = "Not performed/not available";
   var VITAL_KEYS = ["HR", "SBP", "DBP", "RR", "SpO2", "Temp", "GCS"];
-  var CONFIG = { backoffMs: 1500, timeouts: { "case": 120000, results: 120000, turn: 60000, grade: 60000 }, endpoint: "/api/claude" };
+  var CONFIG = {
+    backoffMs: 1500,
+    timeouts: { "case": 120000, results: 120000, review: 120000, turn: 60000, grade: 90000 },
+    endpoint: "/api/claude",
+    // Per call kind. The proxy allows claude-sonnet-5-5 and claude-opus-5-5 and caps max_tokens by kind.
+    models: { "case": MODEL, results: MODEL, review: MODEL, turn: MODEL, grade: MODEL },
+    // How hard the model thinks before answering. Thinking tokens count against max_tokens.
+    effort: { "case": "high", results: "medium", review: "high", turn: "medium", grade: "high" },
+    maxTokens: { "case": 16000, results: 16000, review: 8000, turn: 6000, grade: 8000 },
+    structured: false, // send a JSON schema with each call (output_config.format)
+    cache: true,       // mark the static system blocks for prompt caching
+    review: false,     // clinical review of each generated case by a second call, regenerate once on a blocking issue
+    onCall: null       // function(info) called after every API exchange; used by the live harness
+  };
 
   // ── Chips / dispositions ──────────────────────────────────────────────────
   var CHIPS = {
@@ -29,6 +42,9 @@
     Transfer: ["Call receiving facility", "Request flight", "Request ground ALS", "Send records/imaging", "Talk to family"]
   };
   var DISPOS = ["Discharge", "Discharge w/ f/u", "Admit inpatient", "Transfer", "Emergent transfer"];
+  var GESTALT = ["spot-on", "close", "over", "under"];
+  var WORKUP = ["lean", "appropriate", "shotgun", "insufficient"];
+  var STAB = ["excellent", "adequate", "inadequate", "critical-error"];
   var RESULT_GROUPS = ["Exam", "Labs", "Imaging"];
   var ACTION_LABELS = CHIPS.Procedures.concat(CHIPS.Stabilize, CHIPS.Transfer);
   var LAB_POC = { "Troponin": 1, "Lactate": 1, "VBG/ABG": 1, "Beta-HCG": 1 };
@@ -178,19 +194,39 @@
     return /daily/i.test(m);
   }
 
+  // System prompt as content blocks. The last block carries the cache marker, so the whole
+  // prefix (static prompt, plus a per-case block for turns) is reused by later calls that share it.
+  function sysBlocks(parts) {
+    var blocks = parts.filter(Boolean).map(function (t) { return { type: "text", text: t }; });
+    if (CONFIG.cache && blocks.length) blocks[blocks.length - 1].cache_control = { type: "ephemeral" };
+    return blocks;
+  }
+
   // One HTTP exchange, with a single retry on 429 (not daily limit) / 5xx / 529 / network.
-  function callClaude(kind, system, userContent, maxTokens) {
+  // schema (optional) is sent as output_config.format when CONFIG.structured is on.
+  function callClaude(kind, system, userContent, maxTokens, schema) {
     var fetchFn = root.fetch;
     if (typeof fetchFn !== "function") return Promise.reject(apiError("No network available in this browser."));
     var key = settings.get().apiKey;
     var headers = { "Content-Type": "application/json", "X-DW-Kind": kind };
     if (key) headers["X-User-API-Key"] = key;
-    var body = JSON.stringify({ model: MODEL, max_tokens: maxTokens, system: system, messages: [{ role: "user", content: userContent }] });
+    var model = CONFIG.models[kind] || MODEL;
+    var payload = { model: model, max_tokens: maxTokens, system: system, messages: [{ role: "user", content: userContent }] };
+    var oc = {};
+    if (CONFIG.effort[kind]) oc.effort = CONFIG.effort[kind];
+    if (schema && CONFIG.structured) oc.format = { type: "json_schema", schema: schema };
+    if (oc.effort || oc.format) payload.output_config = oc;
+    var body = JSON.stringify(payload);
     var timeoutMs = CONFIG.timeouts[kind] || 60000;
 
-    function once() {
+    function report(info) {
+      if (typeof CONFIG.onCall !== "function") return;
+      try { CONFIG.onCall(assign({ kind: kind, model: model, request: payload }, info)); } catch (e) { /* logging must never break a call */ }
+    }
+
+    function once(attempt) {
       var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      var timer = null, timedOut = false;
+      var timer = null, timedOut = false, t0 = now();
       if (ctrl) timer = setTimeout(function () { timedOut = true; ctrl.abort(); }, timeoutMs);
       var opts = { method: "POST", headers: headers, body: body };
       if (ctrl) opts.signal = ctrl.signal;
@@ -199,18 +235,25 @@
         .then(function (r) {
           return readBody(r).then(function (data) {
             if (timer) clearTimeout(timer);
+            var ms = now() - t0;
             if (!r.ok) {
               var st = r.status || 0;
+              report({ attempt: attempt, ms: ms, status: st, response: data, error: statusMessage(st, data) });
               throw apiError(statusMessage(st, data), {
                 status: st,
                 retryable: (st === 429 && !isDailyLimit(st, data)) || st >= 500,
                 dailyLimit: isDailyLimit(st, data)
               });
             }
+            report({ attempt: attempt, ms: ms, status: r.status || 200, response: data, usage: data && data.usage, stop_reason: data && data.stop_reason });
             var text = (data && Array.isArray(data.content) ? data.content : [])
               .filter(function (c) { return c && c.type === "text"; })
               .map(function (c) { return c.text; }).join("\n");
             if (!text && data && data._raw) text = data._raw;
+            if (data && data.stop_reason === "refusal") {
+              var cat = data.stop_details && data.stop_details.category;
+              throw apiError("The model declined to write this " + kind + (cat ? " (" + cat + ")" : "") + ". Try another patient.", { refusal: true, category: cat || null, retryable: false });
+            }
             if (data && data.stop_reason === "max_tokens") {
               throw apiError("The model ran out of room before finishing its " + kind + " (" + maxTokens + " tokens).", { truncated: true, badJson: true });
             }
@@ -218,20 +261,25 @@
           });
         }, function (err) {
           if (timer) clearTimeout(timer);
-          if (timedOut) throw apiError("The model took too long to answer (" + Math.round(timeoutMs / 1000) + " s). Try again.", { timeout: true, retryable: false });
+          var ms = now() - t0;
+          if (timedOut) {
+            report({ attempt: attempt, ms: ms, status: 0, error: "timeout" });
+            throw apiError("The model took too long to answer (" + Math.round(timeoutMs / 1000) + " s). Try again.", { timeout: true, retryable: false });
+          }
+          report({ attempt: attempt, ms: ms, status: 0, error: "network" });
           throw apiError("Could not reach the server. Check your connection and try again.", { network: true, retryable: true, cause: err });
         });
     }
-    return once().catch(function (e) {
+    return once(0).catch(function (e) {
       if (!e.retryable) throw e;
-      return sleep(CONFIG.backoffMs).then(once);
+      return sleep(CONFIG.backoffMs).then(function () { return once(1); });
     });
   }
 
   // Calls the model, parses JSON, validates. Bad JSON / failed validation → one more full attempt.
-  function callJSON(kind, system, userContent, maxTokens, validate, label) {
+  function callJSON(kind, system, userContent, maxTokens, validate, label, schema) {
     function attempt(n) {
-      return callClaude(kind, system, userContent, maxTokens).then(function (text) {
+      return callClaude(kind, system, userContent, maxTokens, schema).then(function (text) {
         var parsed;
         try { parsed = extractJSON(text); } catch (e) { throw apiError("The model's " + label + " was not readable JSON (" + String(text || "").slice(0, 80).replace(/\s+/g, " ") + "...).", { badJson: true }); }
         return validate ? validate(parsed) : parsed;
@@ -332,21 +380,21 @@
   var CASE_SCHEMA = [
     "{",
     '  "persona": {"name":"","age":0,"sex":"M|F","ethnicity":"","occupation":"","chiefComplaint":"",',
-    '    "arrivalMode":"walk-in|EMS|private vehicle|wheelchair","emsHandoff":null,',
+    '    "arrivalMode":"walk-in|EMS|private vehicle|wheelchair","emsHandoff":"the EMS report if they came by EMS, else \\"\\"",',
     '    "doorwayImpression":"2 vivid sentences of what you see and sense from the doorway",',
     '    "voice":"how they talk: affect, vocabulary, reliability (or who speaks for them)",',
     '    "facts":"everything the patient/caregiver knows and will say if asked: HPI, PMH, meds, allergies, social, family, OB"},',
     '  "physicality": {"fitz":1-6,"hair":"#hex","rrRate":n,"pallor":0-3,"diaphoresis":0-3,"cyanosis":0-3,"jaundice":0-3,"guarding":0-3,',
-    '    "eyeState":"open|half|closed","positioning":"supine|tripod|fetal|sitting","distressLevel":0-4,"age":n,"habitus":"cachectic|average|obese","rashNote":null},',
+    '    "eyeState":"open|half|closed","positioning":"supine|tripod|fetal|sitting","distressLevel":0-4,"age":n,"habitus":"cachectic|average|obese","rashNote":"short description, or \\"\\" if none"},',
     '  "vitals0": {"HR":0,"SBP":0,"DBP":0,"RR":0,"SpO2":0,"Temp":98.6,"GCS":15},',
     '  "trajectory": [{"t":0,"HR":0,"SBP":0,"DBP":0,"RR":0,"SpO2":0,"Temp":0,"GCS":15},{"t":15},{"t":30},{"t":60},{"t":120}],',
     '  "interventions": [{"id":"fluids","label":"30 mL/kg crystalloid","chips":["IV access + fluids"],"mode":"delta",',
-    '     "effect":{"SBP":12,"HR":-10},"onsetMin":10,"durationMin":null,"critical":true,"windowMin":30,"maxApplications":1,',
+    '     "effect":{"SBP":12,"HR":-10},"onsetMin":10,"durationMin":0,"critical":true,"windowMin":30,"maxApplications":1,',
     '     "response":"one-line nurse/clinical note shown when he does it"}],',
     '  "history": {"<every History chip label>": "answer in the patient\'s (or caregiver\'s) voice"},',
     '  "answerKey": {"trueDx":"","trueAcuity":"integer 1-5, ESI: 1 = resuscitation (sickest), 2 = emergent, 3 = urgent, 4 = less urgent, 5 = non-urgent","trueDispo":"Discharge|Discharge w/ f/u|Admit inpatient|Transfer|Emergent transfer",',
     '    "cantMiss":[""],"criticalActions":[{"id":"","action":"","windowMin":0}],',
-    '    "idealSequence":[{"atMin":0,"action":""}],"transferPackaging":null,"teachingPoint":"","ruralTwist":""}',
+    '    "idealSequence":[{"atMin":0,"action":""}],"transferPackaging":"what must be done before the patient leaves, or \\"\\"","teachingPoint":"","ruralTwist":""}',
     "}"
   ].join("\n");
 
@@ -363,11 +411,11 @@
     "- doorwayImpression: what an experienced eye sees and senses in two seconds. Never name or strongly hint the diagnosis.",
     "- persona.facts holds everything the patient or caregiver would truthfully say if asked, including things they minimize. Infants/young children: a parent speaks. Nursing-home patients: the transfer sheet and staff phone report fill gaps. The patient never names the diagnosis or uses clinical terms they would not know (no \"I think it\u2019s my appendix\", no \"crushing substernal pain radiating to the left arm\" from a farmer); only a diagnosis a clinician already gave them (known AAA, prior PE) may be named. Include realistic noise: an unrelated chronic problem or two, a med list with irrelevant items, a plausible red herring the patient believes, and pertinent negatives that are truly negative.",
     "- vitals0 are the arrival vitals (numbers only). trajectory is the UNTREATED course: points at t = 0, 15, 30, 60, 120 minutes, every vital at every point; t=0 equals vitals0. Benign cases: a flat trajectory with realistic, mostly normal vitals.",
-    "- interventions: 3–8 entries covering the stabilizing actions this case cares about AND tempting harmful or neutral ones (e.g. intubating a hypotensive patient before resuscitation: effect {\"SBP\":-25}; aggressive fluids in pulmonary edema: SpO2 down). Each has chips: an array of EXACT chip labels from the lists below that apply it (may be empty if only free text would). effect values are changes in vital units. mode \"arrest\" only for definitive fixes per ARREST MODE below; \"delta\" otherwise. durationMin (optional) for effects that wear off (bolus during ongoing hemorrhage, push-dose pressor, naloxone). onsetMin and effect sizes per INTERVENTION EFFECTS below. critical:true only for must-do actions, with a realistic windowMin from arrival.",
+    "- interventions: 3–8 entries covering the stabilizing actions this case cares about AND tempting harmful or neutral ones (e.g. intubating a hypotensive patient before resuscitation: effect {\"SBP\":-25}; aggressive fluids in pulmonary edema: SpO2 down). Each has chips: an array of EXACT chip labels from the lists below that apply it (may be empty if only free text would). effect values are changes in vital units. mode \"arrest\" only for definitive fixes per ARREST MODE below; \"delta\" otherwise. durationMin: minutes until the effect fades back to nothing (bolus during ongoing hemorrhage, push-dose pressor, naloxone); 0 when it does not wear off. onsetMin and effect sizes per INTERVENTION EFFECTS below. critical:true only for must-do actions, with a realistic windowMin from arrival.",
     "- answerKey.criticalActions: each id must equal an interventions[].id when one exists for that action. windowMin in minutes from arrival.",
     "- history: one entry for EVERY History chip label below, answered in voice. If a question does not apply (e.g. obstetric history in a male), answer the way a real patient would.",
     "- Lab and imaging results are NOT part of this response (a second call writes them). Any results later written reflect the patient at time 0 (arrival).",
-    "- answerKey.trueDispo must be correct for THIS facility under THESE conditions. \"Admit inpatient\" only for a patient safe on a non-ICU floor with 1\u20132 nurses overnight: no ventilator, no titrated vasoactive or antiarrhythmic drip, no ongoing transfusion need, not BiPAP-dependent, not post-ROSC, no need for a surgeon or specialist within hours. Anyone else is \"Transfer\" or \"Emergent transfer\", and the transfer call belongs early in idealSequence, in parallel with stabilization. transferPackaging: what must be done before the patient leaves (airway, access, blood, pressors, sedation, records, receiving call), or null.",
+    "- answerKey.trueDispo must be correct for THIS facility under THESE conditions. \"Admit inpatient\" only for a patient safe on a non-ICU floor with 1\u20132 nurses overnight: no ventilator, no titrated vasoactive or antiarrhythmic drip, no ongoing transfusion need, not BiPAP-dependent, not post-ROSC, no need for a surgeon or specialist within hours. Anyone else is \"Transfer\" or \"Emergent transfer\", and the transfer call belongs early in idealSequence, in parallel with stabilization. transferPackaging: what must be done before the patient leaves (airway, access, blood, pressors, sedation, records, receiving call), or \"\" when no transfer is expected.",
     "- Respect the conditions: if CT is unavailable, a stroke or trauma case must be workable with exam, POCUS, telestroke and transfer; the teaching point should address that. Stroke with CT unavailable: no thrombolytic; the answer key is BP and glucose management, telestroke consult, and immediate transfer to a stroke center. With CT on call (~45 min), the answer key weighs call-back against the 4.5 h window and starts the transfer in parallel. If the helicopter is unavailable, the ground ETA matters. If O-negative units are few, the case should reflect it.",
     "- Transfer twists: \"refuses\" → the patient has decision-making capacity and declines transfer; put it in facts and voice; the answer key expects a capacity assessment, informed-refusal discussion, involving family, and the best possible local care. \"declined\" → the first receiving facility is on diversion; the answer key expects calling another center promptly and documenting EMTALA-appropriate transfer.",
     "",
@@ -414,12 +462,12 @@
     "- If he asks a free-text question about fluid status, plans, or other things, answer it; do not perform an action he did not order.",
     "- If his words clearly order an intervention from the INTERVENTIONS list, put its id in interventionsApplied. Only ids from that list. Do not apply anything he did not order.",
     "- timeCostMin: realistic minutes the requested items take at this facility (history ~" + T.history + ", exam ~" + T.exam + ", bedside test ~" + T.bedside + ", point-of-care lab ~" + T.labsPoc + ", main lab panel ~" + T.labsSend + ", X-ray ~" + T.xray + ", CT ~" + T.ct + ", procedure ~" + T.procedure + ", phone call ~" + T.callReceiving + "). For several items, the longest one (they run in parallel).",
-    "- obs: a short string when something visibly changes in the patient (else null). physicality: optional object of avatar changes, e.g. {\"diaphoresis\":2,\"distressLevel\":3}, else null.",
+    "- obs: a short string when something visibly changes in the patient, else \"\". physicality: an object of avatar changes, e.g. {\"diaphoresis\":2,\"distressLevel\":3}, or {} when nothing changed.",
     "- Never reveal or hint the diagnosis beyond what the findings themselves show. Never coach him.",
     "- Maximum 6 responses.",
     "",
     "Return exactly:",
-    "{\"responses\":[{\"kind\":\"patient|clinical\",\"text\":\"1-3 sentences\",\"mono\":false,\"obs\":null}],\"interventionsApplied\":[],\"timeCostMin\":0,\"physicality\":null}"
+    "{\"responses\":[{\"kind\":\"patient|clinical\",\"text\":\"1-3 sentences\",\"mono\":false,\"obs\":\"\"}],\"interventionsApplied\":[],\"timeCostMin\":0,\"physicality\":{}}"
   ].join("\n");
 
   var GRADE_SYSTEM = [
@@ -452,6 +500,78 @@
     "Return exactly:",
     "{\"score\":0,\"caughtInDdx\":false,\"rankOfTrueDx\":null,\"gestaltCal\":\"spot-on|close|over|under\",\"workup\":\"lean|appropriate|shotgun|insufficient\",\"dispoOk\":false,\"stabilizationGrade\":\"excellent|adequate|inadequate|critical-error\",\"transferPackagingOk\":null,\"criticalActions\":[{\"id\":\"\",\"action\":\"\",\"status\":\"done|late|missed\",\"atMin\":null,\"windowMin\":0,\"quote\":null}],\"divergences\":[{\"atMin\":0,\"did\":\"\",\"shouldHave\":\"\"}],\"wins\":[\"\"],\"misses\":[\"\"],\"carryForward\":\"\",\"teachingPoint\":\"\",\"criticalError\":null}"
   ].join("\n");
+
+  var REVIEW_SYSTEM = [
+    "You are a senior emergency physician and a clinical pharmacist reviewing a machine-written training case before it is served to a learner (Derek, a solo rural emergency physician at a critical access hospital). You check the medicine, not the style. Return ONLY JSON.",
+    "",
+    facilityText(),
+    "",
+    "CHECK FOR, in this order:",
+    "1. A wrong drug, dose, route or timing in the answer key, interventions or idealSequence. Compare against the reference below and current practice; weight-based for children.",
+    "2. A contraindicated or harmful action presented as correct (lytics for stroke without CT excluding hemorrhage; intubating the hypotensive patient before resuscitation listed as a critical action).",
+    "3. A windowMin that is unrealistic for the action at this facility.",
+    "4. trueDispo wrong for THIS facility under THESE conditions (an unstable patient marked Admit inpatient; a benign case marked Transfer).",
+    "5. A critical action that is not must-do, or a must-do action missing from criticalActions.",
+    "6. Vitals, trajectory or intervention effects that are physiologically implausible for the diagnosis, age and presentation.",
+    "7. Contradictions between persona.facts, vitals0, the trajectory and the answer key.",
+    "",
+    "severity \"block\" = would teach wrong medicine if served as is. \"warn\" = minor or debatable. Never block for wording. If the case is sound, return ok:true with an empty issues list.",
+    "",
+    CLINICAL_ACCURACY,
+    "",
+    "Return exactly: {\"ok\":true,\"issues\":[{\"field\":\"answerKey.criticalActions[1]\",\"problem\":\"\",\"fix\":\"\",\"severity\":\"block|warn\"}]}"
+  ].join("\n");
+
+  // ── JSON schemas for structured outputs (output_config.format) ───────────
+  // Kept to what the API accepts: types, enum, required, additionalProperties:false, anyOf for null.
+  function S(type) { return { type: type }; }
+  function S_enum(vals) { return { type: "string", enum: vals }; }
+  function S_arr(items) { return { type: "array", items: items }; }
+  function S_null(s) { return { anyOf: [s, { type: "null" }] }; }
+  function S_obj(props, optional) {
+    optional = optional || [];
+    var req = Object.keys(props).filter(function (k) { return optional.indexOf(k) < 0; });
+    return { type: "object", properties: props, required: req, additionalProperties: false };
+  }
+  function S_labels(labels) { var p = {}; labels.forEach(function (l) { p[l] = S("string"); }); return S_obj(p); }
+  var VITAL_PROPS = {};
+  VITAL_KEYS.forEach(function (k) { VITAL_PROPS[k] = S("number"); });
+  var PHYS_PROPS = {
+    fitz: S("integer"), hair: S("string"), rrRate: S("number"), pallor: S("integer"), diaphoresis: S("integer"), cyanosis: S("integer"), jaundice: S("integer"), guarding: S("integer"),
+    eyeState: S_enum(["open", "half", "closed"]), positioning: S_enum(["supine", "tripod", "fetal", "sitting"]), distressLevel: S("integer"), age: S("number"),
+    habitus: S_enum(["cachectic", "average", "obese"]), rashNote: S("string")
+  };
+  var SCHEMAS = {
+    "case": S_obj({
+      persona: S_obj({ name: S("string"), age: S("number"), sex: S_enum(["M", "F"]), ethnicity: S("string"), occupation: S("string"), chiefComplaint: S("string"),
+        arrivalMode: S("string"), emsHandoff: S("string"), doorwayImpression: S("string"), voice: S("string"), facts: S("string") }),
+      physicality: S_obj(PHYS_PROPS),
+      vitals0: S_obj(VITAL_PROPS),
+      trajectory: S_arr(S_obj(assign({ t: S("number") }, VITAL_PROPS))),
+      interventions: S_arr(S_obj({ id: S("string"), label: S("string"), chips: S_arr(S("string")), mode: S_enum(["delta", "arrest"]),
+        effect: S_obj(VITAL_PROPS, VITAL_KEYS), onsetMin: S("number"), durationMin: S("number"), critical: S("boolean"), windowMin: S("number"),
+        maxApplications: S("integer"), response: S("string") })),
+      history: S_labels(CHIPS.History),
+      answerKey: S_obj({ trueDx: S("string"), trueAcuity: S("integer"), trueDispo: S_enum(DISPOS), cantMiss: S_arr(S("string")),
+        criticalActions: S_arr(S_obj({ id: S("string"), action: S("string"), windowMin: S("number") })),
+        idealSequence: S_arr(S_obj({ atMin: S("number"), action: S("string") })),
+        transferPackaging: S("string"), teachingPoint: S("string"), ruralTwist: S("string") })
+    }),
+    results: S_obj({ results: S_labels(CHIPS.Exam.concat(CHIPS.Labs, CHIPS.Imaging)) }),
+    turn: S_obj({
+      responses: S_arr(S_obj({ kind: S_enum(["patient", "clinical"]), text: S("string"), mono: S("boolean"), obs: S("string") })),
+      interventionsApplied: S_arr(S("string")), timeCostMin: S("number"),
+      physicality: S_obj(PHYS_PROPS, Object.keys(PHYS_PROPS))
+    }),
+    grade: S_obj({
+      score: S("integer"), caughtInDdx: S("boolean"), rankOfTrueDx: S_null(S("integer")), gestaltCal: S_enum(GESTALT), workup: S_enum(WORKUP),
+      dispoOk: S("boolean"), stabilizationGrade: S_enum(STAB), transferPackagingOk: S_null(S("boolean")),
+      criticalActions: S_arr(S_obj({ id: S("string"), action: S("string"), status: S_enum(["done", "late", "missed"]), atMin: S_null(S("number")), windowMin: S("number"), quote: S_null(S("string")) })),
+      divergences: S_arr(S_obj({ atMin: S("number"), did: S("string"), shouldHave: S("string") })),
+      wins: S_arr(S("string")), misses: S_arr(S("string")), carryForward: S("string"), teachingPoint: S("string"), criticalError: S_null(S("string"))
+    }),
+    review: S_obj({ ok: S("boolean"), issues: S_arr(S_obj({ field: S("string"), problem: S("string"), fix: S("string"), severity: S_enum(["block", "warn"]) })) })
+  };
 
   // ── Case validation / defaults ────────────────────────────────────────────
   function invalid(msg) { var e = new Error(msg); e.invalid = true; return e; }
@@ -639,17 +759,53 @@
     delete s.mode; delete s.seed;
     return s;
   }
+  // Second-model check of the medicine in a generated case. Never blocks a case on its own failure.
+  function reviewCase(seed, caseA) {
+    var user = "SEED: " + JSON.stringify(seedForPrompt(seed)) + "\n\n" + conditionsText(seed.conditions, seed.transferTwist) +
+      "\n\nCASE:\n" + JSON.stringify({ persona: caseA.persona, vitals0: caseA.vitals0, trajectory: caseA.trajectory, interventions: caseA.interventions, answerKey: caseA.answerKey }) +
+      "\n\nReview now. JSON only.";
+    return callJSON("review", sysBlocks([REVIEW_SYSTEM]), user, CONFIG.maxTokens.review, function (r) {
+      if (!r || typeof r !== "object" || typeof r.ok !== "boolean") throw invalid("review missing ok");
+      r.issues = arr(r.issues).filter(function (i) { return i && (i.problem || i.fix); }).map(function (i) {
+        return { field: str(i.field, ""), problem: str(i.problem, ""), fix: str(i.fix, ""), severity: i.severity === "block" ? "block" : "warn" };
+      });
+      return r;
+    }, "case review", SCHEMAS.review);
+  }
+
   function generateCase(seed) {
-    var userA = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\n" + conditionsText(seed.conditions, seed.transferTwist) +
-      "\n\nWrite the case now. JSON only.";
-    return callJSON("case", CASE_SYSTEM, userA, 8000, function (raw) { return normalizeCaseA(raw, seed); }, "case").then(function (caseA) {
+    var seedText = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\n" + conditionsText(seed.conditions, seed.transferTwist);
+    var userA = seedText + "\n\nWrite the case now. JSON only.";
+    function writeCase(extra) {
+      return callJSON("case", sysBlocks([CASE_SYSTEM]), userA + (extra || ""), CONFIG.maxTokens["case"], function (raw) { return normalizeCaseA(raw, seed); }, "case", SCHEMAS["case"]);
+    }
+    function maybeReview(caseA) {
+      if (!CONFIG.review) return Promise.resolve(caseA);
+      return reviewCase(seed, caseA).then(function (r1) {
+        var blocking = r1.issues.filter(function (i) { return i.severity === "block"; });
+        if (!blocking.length) { caseA.review = { first: r1, regenerated: false, second: null }; return caseA; }
+        var note = "\n\nA clinical reviewer flagged these problems in a previous draft of this case. Fix every one of them:\n" +
+          blocking.map(function (i) { return "- " + i.field + ": " + i.problem + " → " + i.fix; }).join("\n");
+        return writeCase(note).then(function (caseB) {
+          return reviewCase(seed, caseB).then(function (r2) {
+            caseB.review = { first: r1, regenerated: true, second: r2 };
+            return caseB;
+          }, function () { caseB.review = { first: r1, regenerated: true, second: null }; return caseB; });
+        });
+      }, function (err) {
+        if (err && (err.dailyLimit || err.refusal)) throw err;
+        caseA.review = { first: null, regenerated: false, second: null, error: err && err.message };
+        return caseA;
+      });
+    }
+    return writeCase().then(maybeReview).then(function (caseA) {
       var forB = { persona: caseA.persona, vitals0: caseA.vitals0, trajectory: caseA.trajectory, physicality: caseA.physicality, answerKey: { trueDx: caseA.answerKey.trueDx } };
-      var userB = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\nCASE:\n" + JSON.stringify(forB) +
+      var userB = seedText + "\n\nCASE:\n" + JSON.stringify(forB) +
         "\n\nWrite {\"results\":{...}} for every label. Results reflect time 0. JSON only.";
-      return callJSON("results", RESULTS_SYSTEM, userB, 8000, function (raw) {
+      return callJSON("results", sysBlocks([RESULTS_SYSTEM]), userB, CONFIG.maxTokens.results, function (raw) {
         if (!raw || typeof raw.results !== "object") throw invalid("missing results");
         return raw;
-      }, "results sheet").then(function (rawB) {
+      }, "results sheet", SCHEMAS.results).then(function (rawB) {
         return normalizeResults(rawB, caseA);
       }, function (err) {
         // Degrade rather than fail: every result goes to the model at order time.
@@ -857,17 +1013,30 @@
     return "HR " + v.HR + " BP " + v.SBP + "/" + v.DBP + " RR " + v.RR + " SpO2 " + v.SpO2 + " T " + v.Temp + " GCS " + v.GCS;
   }
 
-  function buildTurnUser(enc, items, text, vitals) {
+  // What never changes during a case goes in the system blocks, where it is cached across the
+  // case's turns; what changes turn to turn goes in the user message.
+  function turnCaseBlock(c) {
+    return [
+      "PERSONA: " + JSON.stringify(c.persona),
+      "PHYSICALITY AT ARRIVAL: " + JSON.stringify(c.physicality),
+      conditionsText(c.seed && c.seed.conditions, null),
+      "HISTORY SHEET (patient's answers): " + JSON.stringify(c.history),
+      "INTERVENTIONS (id: label): " + JSON.stringify((c.interventions || []).map(function (iv) { return { id: iv.id, label: iv.label }; }))
+    ].join("\n\n");
+  }
+  function buildTurnPrompt(enc, items, text, vitals) {
     var c = enc.case;
+    // Only tests he has ordered (or orders now) are on the sheet he sees; the rest stays hidden.
+    var want = {};
+    Object.keys(enc.resulted || {}).forEach(function (l) { want[l] = true; });
+    items.forEach(function (i) { want[i.label] = true; });
+    var sheet = {};
+    Object.keys(c.results || {}).forEach(function (l) { if (want[l] && c.results[l] !== FALLBACK) sheet[l] = c.results[l]; });
     var lines = [];
-    lines.push("PERSONA: " + JSON.stringify(c.persona));
     lines.push("PHYSICALITY NOW: " + JSON.stringify(enc.physicality || c.physicality));
-    lines.push(conditionsText(c.seed && c.seed.conditions, null));
     lines.push("SIM MINUTE: T+" + enc.simMin + " · CURRENT VITALS: " + fmtVitals(vitals));
-    lines.push("HISTORY SHEET (patient's answers): " + JSON.stringify(c.history));
-    lines.push("RESULTS SHEET (values at time 0): " + JSON.stringify(c.results));
+    lines.push("RESULTS SHEET (time-0 values for tests already ordered or ordered now; no other test has been done): " + JSON.stringify(sheet));
     lines.push("ALREADY RESULTED (a new order for these is a repeat): " + JSON.stringify(Object.keys(enc.resulted || {})));
-    lines.push("INTERVENTIONS (id: label): " + JSON.stringify((c.interventions || []).map(function (iv) { return { id: iv.id, label: iv.label }; })));
     lines.push("APPLIED SO FAR: " + JSON.stringify((enc.applied || []).map(function (a) { return { id: a.id, atMin: a.atMin }; })));
     if (enc.transport) lines.push("TRANSPORT: " + JSON.stringify(enc.transport));
     if (enc.accepted) lines.push("RECEIVING FACILITY: accepted.");
@@ -877,7 +1046,7 @@
     if (text) req.push("He says/types: \"" + text + "\"");
     lines.push("NOW:\n" + req.join("\n"));
     lines.push("Respond to the items above only. JSON only.");
-    return lines.join("\n\n");
+    return { system: sysBlocks([TURN_SYSTEM, turnCaseBlock(c)]), user: lines.join("\n\n") };
   }
 
   function act(enc, input) {
@@ -1013,11 +1182,11 @@
     var modelPromise = Promise.resolve(null);
     if (needModel) {
       var encForPrompt = assign({}, enc, { applied: applied, resulted: enc.resulted, transport: transport, accepted: accepted, log: (enc.log || []).concat(entries) });
-      var user = buildTurnUser(encForPrompt, modelItems, text, vBefore);
-      modelPromise = callJSON("turn", TURN_SYSTEM, user, 1500, function (r) {
+      var p = buildTurnPrompt(encForPrompt, modelItems, text, vBefore);
+      modelPromise = callJSON("turn", p.system, p.user, CONFIG.maxTokens.turn, function (r) {
         if (!r || typeof r !== "object") throw invalid("turn not an object");
         return r;
-      }, "reply");
+      }, "reply", SCHEMAS.turn);
     }
 
     return modelPromise.then(function (r) {
@@ -1135,10 +1304,6 @@
     return out.join("\n");
   }
 
-  var GESTALT = ["spot-on", "close", "over", "under"];
-  var WORKUP = ["lean", "appropriate", "shotgun", "insufficient"];
-  var STAB = ["excellent", "adequate", "inadequate", "critical-error"];
-
   function grade(enc, final) {
     final = final || {};
     if (!enc || !enc.case) return Promise.reject(new Error("No active patient."));
@@ -1164,10 +1329,10 @@
       "Grade now. JSON only."
     ].join("\n\n");
 
-    return callJSON("grade", GRADE_SYSTEM, user, 3000, function (g) {
+    return callJSON("grade", sysBlocks([GRADE_SYSTEM]), user, CONFIG.maxTokens.grade, function (g) {
       if (!g || typeof g !== "object" || !isFinite(num(g.score, NaN))) throw invalid("grade missing score");
       return g;
-    }, "grade").then(function (g) { return finalizeGrade(g, enc, crit, answers); });
+    }, "grade", SCHEMAS.grade).then(function (g) { return finalizeGrade(g, enc, crit, answers); });
   }
 
   // ── DDx matching (engine decides rank; the model only breaks ties) ────────
@@ -1516,10 +1681,11 @@
     settings: settings,
     // internals for tests and fixtures — not part of the UI contract
     _: {
-      CONFIG: CONFIG, CASE_SYSTEM: CASE_SYSTEM, RESULTS_SYSTEM: RESULTS_SYSTEM, TURN_SYSTEM: TURN_SYSTEM, GRADE_SYSTEM: GRADE_SYSTEM,
+      CONFIG: CONFIG, CASE_SYSTEM: CASE_SYSTEM, RESULTS_SYSTEM: RESULTS_SYSTEM, TURN_SYSTEM: TURN_SYSTEM, GRADE_SYSTEM: GRADE_SYSTEM, REVIEW_SYSTEM: REVIEW_SYSTEM,
+      SCHEMAS: SCHEMAS, sysBlocks: sysBlocks, buildTurnPrompt: buildTurnPrompt, transcriptText: transcriptText,
       FALLBACK: FALLBACK, extractJSON: extractJSON, normalizeCase: normalizeCase, normalizeCaseA: normalizeCaseA,
       computeCritical: computeCritical, finalizeGrade: finalizeGrade, matchDdx: matchDdx, dxTokens: dxTokens, deteriorationEvents: deteriorationEvents,
-      callClaude: callClaude, generateCase: generateCase, resetInflight: function () { inflight = null; }
+      callClaude: callClaude, generateCase: generateCase, reviewCase: reviewCase, resetInflight: function () { inflight = null; }
     }
   };
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

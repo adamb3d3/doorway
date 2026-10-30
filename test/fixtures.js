@@ -124,6 +124,7 @@
     if (kind === "case") return wrap(fakeCaseA(seed));
     if (kind === "results") return wrap(fakeResults(seed));
     if (kind === "grade") return wrap(fakeGrade());
+    if (kind === "review") return wrap({ ok: true, issues: [] });
     return wrap(fakeTurn());
   }
 
