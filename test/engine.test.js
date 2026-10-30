@@ -130,18 +130,40 @@ test("interleave picks a lookalike ~30% after a serious case", function () {
   assert(n / 2000 > 0.25 && n / 2000 < 0.4, "lookalike share " + n / 2000);
 });
 
-test("miss-queue re-exposure: due item wins, different presentation and age band", function () {
+test("miss-queue re-exposure: a due item comes back about one pick in three, with a different presentation and age band", function () {
   var item = { dxId: "stemi_lytics", dx: "STEMI", domain: "Cardiac", originalCaseId: "orig1", presentation: "classic crushing pain", ageBand: "adult", due: [Date.now() - 1000, Date.now() + 1e9, Date.now() + 2e9], stage: 0 };
   for (var i = 0; i < 50; i++) {
-    var s = C.pickCase({ missQueue: [item] }, { seed: i + 1 });
+    var s = C.pickCase({ missQueue: [item] }, { seed: i + 1, reexposeChance: 1 });
     assert.strictEqual(s.dxId, "stemi_lytics");
     assert.notStrictEqual(s.presentation, item.presentation);
     assert.notStrictEqual(s.ageBand, item.ageBand);
     assert.strictEqual(s.reexposure.originalCaseId, "orig1");
   }
+  var n = 0;
+  for (var j = 0; j < 600; j++) if (C.pickCase({ missQueue: [item] }, { seed: j + 7 }).reexposure) n++;
+  assert(n / 600 > 0.25 && n / 600 < 0.42, "blind re-exposure share " + n / 600);
+  assert.strictEqual(C.pickCase({ missQueue: [item] }, { seed: 3, reexposeChance: 0 }).reexposure, null);
   var notDue = Object.assign({}, item, { due: [Date.now() + 1e9, 0, 0] });
-  var s2 = C.pickCase({ missQueue: [notDue] }, { seed: 3 });
+  var s2 = C.pickCase({ missQueue: [notDue] }, { seed: 3, reexposeChance: 1 });
   assert.strictEqual(s2.reexposure, null);
+});
+
+test("drill: hostile conditions and every follow-up is a lookalike", function () {
+  var rng = C.mulberry32(5), night = 0, ctUp = 0, nights = 0, wx = 0;
+  for (var i = 0; i < 6000; i++) {
+    var c = C.rollConditions(rng, true);
+    if (c.hour >= 19 || c.hour < 7) { night++; nights++; if (c.ctAvailable) ctUp++; }
+    if (c.flight !== "available") wx++;
+  }
+  assert(Math.abs(night / 6000 - 0.7) < 0.03, "night " + night / 6000);
+  assert(ctUp / nights < 0.14, "CT in house at night " + ctUp / nights);
+  assert(wx / 6000 > 0.5, "helicopter unavailable " + wx / 6000);
+  var hist = [{ dxId: "aortic_dissection", bucket: "serious" }];
+  var looks = C.byId("aortic_dissection").lookalikes;
+  for (var k = 0; k < 200; k++) assert(looks.indexOf(C.pickCase({ history: hist }, { seed: k + 11, mode: "drill" }).dxId) >= 0, "drill lookalike");
+  var nightShift = 0;
+  for (var m = 0; m < 2000; m++) { var sc = C.pickCase({}, { seed: m + 3, mode: "shift" }).conditions; if (sc.hour >= 19 || sc.hour < 7) nightShift++; }
+  assert(Math.abs(nightShift / 2000 - 0.4) < 0.04, "shift keeps the normal night share " + nightShift / 2000);
 });
 
 test("conditions roll: night share ≈40%, flight mix, CT logic", function () {
@@ -236,14 +258,56 @@ test("events are stamped at the crossing minute, not the end of the batch", asyn
 test("history entry keeps the lock time, the carry-forward rule and the mode; stats lists the last rules", function () {
   reset();
   var enc = readyEnc(makeCase({ seed: 111, conditions: cond() }));
-  var g = DW._.finalizeGrade(Object.assign(FX.fakeGrade(70), { carryForward: "Hang antibiotics before imaging." }), enc, DW._.computeCritical(enc), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  var g = DW._.finalizeGrade(Object.assign(FX.fakeGrade(70), { carryForward: "Hang antibiotics before imaging.", ruleApplied: { text: "Lactate before the CT.", followed: false } }), enc, DW._.computeCritical(enc), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  assert.deepStrictEqual(g.ruleApplied, { text: "Lactate before the CT.", followed: false });
   var st = DW.recordResult(enc, g, {});
   var h = st.history[0];
   assert.strictEqual(typeof h.lockSec, "number");
   assert.strictEqual(h.carryForward, "Hang antibiotics before imaging.");
+  assert.strictEqual(h.mode, "shift");
   assert.strictEqual(typeof h.trueSerious, "boolean");
+  assert.deepStrictEqual(h.ruleApplied, { text: "Lactate before the CT.", followed: false });
   assert.strictEqual(st.rules.length, 1);
   assert.strictEqual(st.rules[0].rule, "Hang antibiotics before imaging.");
+  assert.strictEqual(DW.findHistory(h.caseId).caseId, h.caseId);
+  assert.strictEqual(DW._.finalizeGrade(FX.fakeGrade(70), enc, DW._.computeCritical(enc), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" }).ruleApplied, null, "no rule when the grader sends none");
+});
+
+test("grader is told his past rules; calibration counts Shift only; drill reports speed; re-exposures and confidence are summarised", async function () {
+  reset();
+  // three shift cases with rules, then two drill cases
+  for (var i = 0; i < 5; i++) {
+    var drill = i >= 3;
+    var c = makeCase({ seed: 200 + i, conditions: cond(), bucket: "serious" });
+    c.seed.mode = drill ? "drill" : "shift";
+    if (i === 2) c.seed.reexposure = { originalCaseId: "orig-x" };
+    var e = DW.lockGut(DW.startEncounter(c), { sick: true, acuity: drill ? 1 : 3, gutDispo: "Transfer" });
+    var chips = [{ group: "Stabilize", label: "IV access + fluids" }];
+    if (i === 2) chips.push({ group: "Stabilize", label: "Broad-spectrum antibiotics" }); // the re-exposure passes: caught, nothing missed
+    var r = await DW.act(e, { chips: chips });
+    var fx = Object.assign(FX.fakeGrade(70 + i), { carryForward: "Rule " + i });
+    var g = DW._.finalizeGrade(fx, r.enc, DW._.computeCritical(r.enc), { ddx: [c.answerKey.trueDx], confidence: i < 2 ? 90 : 40, finalDispo: "Transfer" });
+    DW.recordResult(r.enc, g, {});
+  }
+  var st = DW.stats();
+  assert.strictEqual(st.cases, 5);
+  assert.strictEqual(st.calibration.shiftCases, 3);
+  var gridN = 0; st.acuityGrid.forEach(function (row) { row.forEach(function (x) { gridN += x; }); });
+  assert.strictEqual(gridN, 3, "drill cases stay out of the grid");
+  assert.strictEqual(st.drill.n, 2);
+  assert.strictEqual(typeof st.drill.firstCritMedian, "number");
+  assert.strictEqual(st.rules.length, 5);
+  assert.strictEqual(st.rules[0].rule, "Rule 4", "newest first");
+  assert.strictEqual(st.reexposures.total, 1);
+  assert.strictEqual(st.reexposures.caught, 1);
+  assert.strictEqual(st.confidence[0].n, 2, "two high-confidence shift cases");
+  assert.strictEqual(st.confidence[0].right, 2);
+  assert.strictEqual(st.cantMiss.serious, 5);
+  // the grader sees the rules
+  var enc = readyEnc(makeCase({ seed: 210, conditions: cond() }));
+  await DW.grade(enc, { ddx: ["x"], confidence: 50, finalDispo: "Transfer" });
+  var prompt = calls[calls.length - 1].body.messages[0].content;
+  assert(/HIS RULES FROM PAST DEBRIEFS/.test(prompt) && /Rule 4/.test(prompt) && /ruleApplied/.test(sysText(calls[calls.length - 1].body)));
 });
 
 test("vitalsAt: delta ramps over onset", function () {

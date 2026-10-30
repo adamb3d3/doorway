@@ -497,9 +497,10 @@
     "CRITICAL ACTIONS: the engine has already timed every critical action that matches an intervention (COMPUTED list) — those are fixed; do not change or repeat them. Judge ONLY the actions in TO_JUDGE from the transcript: status done|late|missed, atMin when done (sim minute) else null, and quote his exact words that did it, or null.",
     "",
     "carryForward: one rule he should carry into the next shift, ≤20 words, specific to what happened here.",
+    "HIS RULES: the user message may list rules he wrote for himself after earlier cases (newest first). If one of them bears on this case, put it in ruleApplied.text and set followed to true or false; otherwise text is \"\" and followed is null.",
     "",
     "Return exactly:",
-    "{\"score\":0,\"caughtInDdx\":false,\"rankOfTrueDx\":null,\"gestaltCal\":\"spot-on|close|over|under\",\"workup\":\"lean|appropriate|shotgun|insufficient\",\"dispoOk\":false,\"stabilizationGrade\":\"excellent|adequate|inadequate|critical-error\",\"transferPackagingOk\":null,\"criticalActions\":[{\"id\":\"\",\"action\":\"\",\"status\":\"done|late|missed\",\"atMin\":null,\"windowMin\":0,\"quote\":null}],\"divergences\":[{\"atMin\":0,\"did\":\"\",\"shouldHave\":\"\"}],\"wins\":[\"\"],\"misses\":[\"\"],\"carryForward\":\"\",\"teachingPoint\":\"\",\"criticalError\":null}"
+    "{\"score\":0,\"caughtInDdx\":false,\"rankOfTrueDx\":null,\"gestaltCal\":\"spot-on|close|over|under\",\"workup\":\"lean|appropriate|shotgun|insufficient\",\"dispoOk\":false,\"stabilizationGrade\":\"excellent|adequate|inadequate|critical-error\",\"transferPackagingOk\":null,\"criticalActions\":[{\"id\":\"\",\"action\":\"\",\"status\":\"done|late|missed\",\"atMin\":null,\"windowMin\":0,\"quote\":null}],\"divergences\":[{\"atMin\":0,\"did\":\"\",\"shouldHave\":\"\"}],\"wins\":[\"\"],\"misses\":[\"\"],\"carryForward\":\"\",\"teachingPoint\":\"\",\"criticalError\":null,\"ruleApplied\":{\"text\":\"\",\"followed\":null}}"
   ].join("\n");
 
   var REVIEW_SYSTEM = [
@@ -569,7 +570,8 @@
       dispoOk: S("boolean"), stabilizationGrade: S_enum(STAB), transferPackagingOk: S_null(S("boolean")),
       criticalActions: S_arr(S_obj({ id: S("string"), action: S("string"), status: S_enum(["done", "late", "missed"]), atMin: S_null(S("number")), windowMin: S("number"), quote: S_null(S("string")) })),
       divergences: S_arr(S_obj({ atMin: S("number"), did: S("string"), shouldHave: S("string") })),
-      wins: S_arr(S("string")), misses: S_arr(S("string")), carryForward: S("string"), teachingPoint: S("string"), criticalError: S_null(S("string"))
+      wins: S_arr(S("string")), misses: S_arr(S("string")), carryForward: S("string"), teachingPoint: S("string"), criticalError: S_null(S("string")),
+      ruleApplied: S_obj({ text: S("string"), followed: S_null(S("boolean")) })
     }),
     review: S_obj({ ok: S("boolean"), issues: S_arr(S_obj({ field: S("string"), problem: S("string"), fix: S("string"), severity: S_enum(["block", "warn"]) })) })
   };
@@ -1358,6 +1360,7 @@
       "LOCKED DOORWAY GUT (before any workup): " + JSON.stringify(enc.gut),
       "TRANSCRIPT:\n" + transcriptText(enc),
       "FINAL ANSWERS: " + JSON.stringify(answers),
+      "HIS RULES FROM PAST DEBRIEFS (newest first): " + JSON.stringify(stats().rules.map(function (r) { return r.rule; })),
       "COMPUTED (fixed, do not change): " + JSON.stringify(crit.computed),
       "TO_JUDGE (return only these in criticalActions): " + JSON.stringify(crit.toJudge),
       "Grade now. JSON only."
@@ -1455,6 +1458,8 @@
       carryForward: str(g.carryForward, ""),
       teachingPoint: str(g.teachingPoint, c.answerKey.teachingPoint || ""),
       criticalError: str(g.criticalError, null),
+      ruleApplied: g.ruleApplied && typeof g.ruleApplied === "object" && str(g.ruleApplied.text, "")
+        ? { text: str(g.ruleApplied.text, ""), followed: typeof g.ruleApplied.followed === "boolean" ? g.ruleApplied.followed : null } : null,
       trueDx: c.answerKey.trueDx,
       trueAcuity: c.answerKey.trueAcuity,
       trueDispo: c.answerKey.trueDispo,
@@ -1480,27 +1485,42 @@
     return null;
   }
 
+  function isShift(e) { return e.mode !== "drill"; }
+  function passed(e) { return !!e.caught && !(e.critMissed || []).length; }
+  function median(a) {
+    if (!a.length) return null;
+    var s = a.slice().sort(function (x, y) { return x - y; }), m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round(((s[m - 1] + s[m]) / 2) * 10) / 10;
+  }
+  function maeOf(list) {
+    var n = 0, sum = 0;
+    list.forEach(function (e) { if (e.gutAcuity >= 1 && e.gutAcuity <= 5 && e.trueAcuity >= 1 && e.trueAcuity <= 5) { sum += Math.abs(e.gutAcuity - e.trueAcuity); n++; } });
+    return { n: n, mae: n ? Math.round((sum / n) * 100) / 100 : null };
+  }
+  function avgScore(list) { return list.length ? Math.round(list.reduce(function (x, e) { return x + num(e.score, 0); }, 0) / list.length) : null; }
+
+  // Calibration (the grid, acuity error, gut-vs-final, read speed, confidence) counts Shift cases
+  // only: in Drill seven in ten are serious, so "sick" is right by default. Drill reports speed.
   function stats() {
     var s = rawStats();
-    var h = s.history;
+    var h = s.history.filter(Boolean);
     var byDomain = {};
     CASES.DOMAINS.forEach(function (d) { byDomain[d] = { n: 0, avg: 0 }; });
     var grid = [];
     for (var i = 0; i < 5; i++) grid.push([0, 0, 0, 0, 0]);
     var gvf = { rr: 0, rw: 0, wr: 0, ww: 0 };
-    var sums = {}, total = 0, maeSum = 0, maeN = 0;
+    var sums = {}, total = 0;
+    var shift = h.filter(isShift), drill = h.filter(function (e) { return !isShift(e); });
     h.forEach(function (e) {
-      if (!e) return;
       total += num(e.score, 0);
       if (e.domain) {
         if (!byDomain[e.domain]) byDomain[e.domain] = { n: 0, avg: 0 };
         sums[e.domain] = (sums[e.domain] || 0) + num(e.score, 0);
         byDomain[e.domain].n += 1;
       }
-      if (e.gutAcuity >= 1 && e.gutAcuity <= 5 && e.trueAcuity >= 1 && e.trueAcuity <= 5) {
-        grid[e.gutAcuity - 1][e.trueAcuity - 1] += 1;
-        maeSum += Math.abs(e.gutAcuity - e.trueAcuity); maeN += 1;
-      }
+    });
+    shift.forEach(function (e) {
+      if (e.gutAcuity >= 1 && e.gutAcuity <= 5 && e.trueAcuity >= 1 && e.trueAcuity <= 5) grid[e.gutAcuity - 1][e.trueAcuity - 1] += 1;
       var tc = dispoClass(e.trueDispo);
       if (tc && e.gutDispo && e.finalDispo) {
         var gr = dispoClass(e.gutDispo) === tc;
@@ -1512,9 +1532,28 @@
     var t = now();
     var mq = s.missQueue.map(function (m) { return assign({}, m, { isDue: m.stage < (m.due || []).length && m.due[m.stage] <= t }); });
     var rules = [];
-    for (var ri = h.length - 1; ri >= 0 && rules.length < 5; ri--) {
-      if (h[ri] && h[ri].carryForward) rules.push({ caseId: h[ri].caseId, date: h[ri].date, dx: h[ri].dx, rule: h[ri].carryForward });
+    for (var ri = h.length - 1; ri >= 0 && rules.length < 10; ri--) {
+      if (h[ri].carryForward) rules.push({ caseId: h[ri].caseId, date: h[ri].date, dx: h[ri].dx, rule: h[ri].carryForward });
     }
+    // Movement: the last ten Shift cases against the ten before; domains whose second half beat (or lost to) their first.
+    var recent = maeOf(shift.slice(-10)), previous = maeOf(shift.slice(-20, -10));
+    var moved = [];
+    CASES.DOMAINS.forEach(function (dn) {
+      var all = h.filter(function (e) { return e.domain === dn; });
+      if (all.length < 6) return;
+      var half = Math.floor(all.length / 2), a = avgScore(all.slice(0, half)), b = avgScore(all.slice(half));
+      if (Math.abs(b - a) >= 8) moved.push({ domain: dn, from: a, to: b, n: all.length });
+    });
+    var serious = h.filter(function (e) { return e.trueSerious === true || e.bucket === "serious"; });
+    var re = h.filter(function (e) { return e.reexposureOf; });
+    var reMonth = re.filter(function (e) { return e.date >= t - 30 * DAY; });
+    var fast = shift.filter(function (e) { return e.lockSec != null && e.lockSec <= 15; });
+    var slow = shift.filter(function (e) { return e.lockSec != null && e.lockSec > 30; });
+    var conf = [{ label: "76–100", lo: 76, hi: 100 }, { label: "51–75", lo: 51, hi: 75 }, { label: "0–50", lo: 0, hi: 50 }].map(function (b) {
+      var in_ = shift.filter(function (e) { return e.confidence != null && e.confidence >= b.lo && e.confidence <= b.hi && e.ddx && e.ddx.length; });
+      return { label: b.label, n: in_.length, right: in_.filter(function (e) { return e.rankOfTrueDx === 1; }).length };
+    });
+    var drillSerious = drill.filter(function (e) { return (e.trueSerious === true || e.bucket === "serious") && e.firstCritMin != null; });
     return {
       rules: rules,
       cases: h.length,
@@ -1524,8 +1563,16 @@
       avg: h.length ? Math.round(total / h.length) : 0,
       byDomain: byDomain,
       acuityGrid: grid,
-      acuityMAE: maeN ? Math.round((maeSum / maeN) * 100) / 100 : null,
+      acuityMAE: maeOf(shift).mae,
+      calibration: { shiftCases: shift.length, recent: recent, previous: previous },
+      movedDomains: moved,
       gutVsFinal: gvf,
+      cantMiss: { serious: serious.length, caught: serious.filter(function (e) { return e.caught; }).length },
+      reexposures: { total: re.length, caught: re.filter(passed).length, month: reMonth.length, monthCaught: reMonth.filter(passed).length },
+      readSpeed: { fast: maeOf(fast), slow: maeOf(slow) },
+      confidence: conf,
+      drill: { n: drill.length, firstCritMedian: median(drillSerious.map(function (e) { return e.firstCritMin; })), firstCritRecent: median(drillSerious.slice(-5).map(function (e) { return e.firstCritMin; })) },
+      benignMedianMin: median(shift.filter(function (e) { return e.trueSerious === false || e.bucket === "benign"; }).map(function (e) { return num(e.simMin, 0); })),
       missQueue: mq,
       missDue: mq.filter(function (m) { return m.isDue; }).length
     };
@@ -1551,6 +1598,8 @@
       gutSick: enc.gut ? enc.gut.sick : null, gutAcuity: enc.gut ? enc.gut.acuity : null, gutTimedOut: enc.gut ? !!enc.gut.timedOut : false,
       lockSec: enc.gut && isFinite(num(enc.gut.elapsedSec, NaN)) ? num(enc.gut.elapsedSec) : null,
       trueSerious: seed.bucket ? seed.bucket === "serious" : null, simMin: enc.simMin || 0,
+      mode: seed.mode === "drill" ? "drill" : "shift",
+      ruleApplied: g.ruleApplied || null,
       trueAcuity: c.answerKey.trueAcuity, gutDispo: enc.gut ? enc.gut.gutDispo : null,
       finalDispo: final.finalDispo || null, trueDispo: c.answerKey.trueDispo, dispoOk: !!g.dispoOk,
       ddx: final.ddx || [], confidence: final.confidence === undefined ? null : final.confidence,
@@ -1717,6 +1766,7 @@
     flagGrade: flagGrade,
     saveReflection: saveReflection,
     getResult: getResult,
+    findHistory: historyEntry,
     hasPrefetched: hasPrefetched,
     stats: stats,
     exportData: exportData,

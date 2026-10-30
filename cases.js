@@ -273,17 +273,18 @@
 
   // ── Conditions roll ───────────────────────────────────────────────────────
   function isNight(hour) { return hour >= 19 || hour < 7; }
-  function rollConditions(rng) {
+  // hostile (Drill): more nights, CT down more often, the helicopter grounded more often, diversion more often.
+  function rollConditions(rng, hostile) {
     rng = rng || Math.random;
     var hour;
-    if (rng() < 0.4) hour = (19 + Math.floor(rng() * 12)) % 24; // 19..06
+    if (rng() < (hostile ? 0.7 : 0.4)) hour = (19 + Math.floor(rng() * 12)) % 24; // 19..06
     else hour = 7 + Math.floor(rng() * 12); // 07..18
     var minute = Math.floor(rng() * 60);
     var inHours = hour >= FACILITY.ctHours[0] && hour < FACILITY.ctHours[1];
-    var ctAvailable = inHours ? true : rng() < 0.25; // night: 25% CT tech in house
+    var ctAvailable = inHours ? true : rng() < (hostile ? 0.1 : 0.25); // night: CT tech in house
     var ctOnCall = ctAvailable ? false : rng() < 0.75; // A10: otherwise ~75% a tech can be called back
     var fr = rng();
-    var flight = fr < 0.65 ? "available" : fr < 0.85 ? "weather" : "in use";
+    var flight = fr < (hostile ? 0.45 : 0.65) ? "available" : fr < 0.85 ? "weather" : "in use";
     return {
       hour: hour,
       minute: minute,
@@ -292,7 +293,7 @@
       flight: flight,
       groundEta: rint(rng, 60, 90),
       obNegUnits: rint(rng, 0, 4),
-      tertiaryDiversion: rng() < 0.1,
+      tertiaryDiversion: rng() < (hostile ? 0.2 : 0.1),
       nurseCount: rng() < 0.5 ? 1 : 2
     };
   }
@@ -374,13 +375,15 @@
     var now = opts.now || Date.now();
     var mode = opts.mode === "drill" ? "drill" : "shift";
     var history = stats.history || [];
-    var conditions = rollConditions(rng);
+    var conditions = rollConditions(rng, mode === "drill");
 
     var entry = null, presentation = null, band = null, reexposure = null;
 
-    // (1) due miss-queue item → re-exposure with a different presentation and age band
+    // (1) a due miss-queue item comes back as a re-exposure, with a different presentation and age
+    // band, on roughly one pick in three once due, so "due" never predicts the next patient.
     var due = dueMissItem(stats.missQueue, now);
-    if (due) {
+    var reexposeChance = opts.reexposeChance === undefined ? 1 / 3 : opts.reexposeChance;
+    if (due && rng() < reexposeChance) {
       entry = BY_ID[due.dxId];
       var pres = entry.presentations.filter(function (p) { return p !== due.presentation; });
       presentation = pickOne(rng, pres.length ? pres : entry.presentations);
@@ -390,11 +393,11 @@
 
     var recent = recentDxIds(history, 10);
 
-    // (4) interleave: after a serious case, 30% chance of one of its lookalikes
+    // (4) interleave: after a serious case, one of its lookalikes 30% of the time (always in Drill)
     if (!entry) {
       var last = history.length ? history[history.length - 1] : null;
       var lastEntry = last && last.dxId ? BY_ID[last.dxId] : null;
-      if (lastEntry && lastEntry.bucket === "serious" && rng() < 0.3) {
+      if (lastEntry && lastEntry.bucket === "serious" && rng() < (mode === "drill" ? 1 : 0.3)) {
         var looks = lastEntry.lookalikes.filter(function (id) { return BY_ID[id] && !recent[id]; });
         if (looks.length) entry = BY_ID[pickOne(rng, looks)];
       }
