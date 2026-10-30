@@ -793,7 +793,7 @@ test("newCase calls onSeed(seed) before the first API call; also for prefetched 
   assert.strictEqual(callsAtSeed, 0, "onSeed fires before generation");
   assert.deepStrictEqual(stages, ["case", "results"], "stages reported as each call starts");
   DW._.CONFIG.review = true;
-  try { stages = []; await DW.newCase({ onStage: function (s) { stages.push(s); } }); assert.deepStrictEqual(stages, ["case", "review", "results"]); }
+  try { stages = []; await DW.newCase({ onStage: function (s) { stages.push(s); } }); assert.deepStrictEqual(stages, ["case", "review"], "review and results start together"); }
   finally { DW._.CONFIG.review = false; }
   // a throwing callback does not break generation
   await DW.newCase({ onSeed: function () { throw new Error("ui bug"); } });
@@ -1023,18 +1023,19 @@ test("review pass: ok → served; blocking issue → regenerate once with the is
     var dflt = function () { return undefined; }; // overrides are consumed one per call, in call order
     overrides.push(dflt, function () { return { status: 200, body: FX.wrap({ ok: false, issues: [{ field: "answerKey.criticalActions[0]", problem: "TNK dose wrong", fix: "0.25 mg/kg max 25 mg", severity: "block" }, { field: "persona.voice", problem: "flat", fix: "", severity: "warn" }] }) }; });
     var c2 = await DW.newCase({});
-    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "case", "review", "results"]);
+    // review and results run together; a regenerated case gets a fresh sheet
+    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "results", "case", "review", "results"]);
     assert.strictEqual(c2.review.regenerated, true);
     assert.strictEqual(c2.review.first.issues.length, 2);
     assert.strictEqual(c2.review.second.ok, true);
-    assert(/clinical reviewer flagged/.test(calls[2].body.messages[0].content) && /TNK dose wrong/.test(calls[2].body.messages[0].content), "second draft is told what to fix");
+    assert(/clinical reviewer flagged/.test(calls[3].body.messages[0].content) && /TNK dose wrong/.test(calls[3].body.messages[0].content), "second draft is told what to fix");
     assert(!/clinical reviewer flagged/.test(calls[0].body.messages[0].content));
     reset();
     var fail = function () { return { status: 500, body: {} }; };
-    overrides.push(dflt, fail, fail);
+    overrides.push(dflt, fail, dflt, fail); // case ok, review 500, results ok, review retry 500
     var c3 = await DW.newCase({});
     assert(c3.persona && c3.review.first === null && /error|500/.test(c3.review.error), "review failure degrades");
-    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "review", "results"]);
+    assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["case", "review", "results", "review"]);
   } finally { DW._.CONFIG.review = false; }
 });
 

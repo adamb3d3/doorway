@@ -416,14 +416,9 @@ const StepBlock=({n,title,body,delay})=>{
   useEffect(()=>{if(!ref.current||!window.IntersectionObserver){setVis(true);return}const io=new IntersectionObserver(([e])=>{if(e.isIntersecting){setVis(true);io.disconnect()}},{threshold:0.2});io.observe(ref.current);return()=>io.disconnect()},[]);
   return(<div ref={ref} style={{display:"flex",gap:24,marginBottom:56,opacity:vis?1:0,transform:vis?"none":"translateY(20px)",transition:`all 900ms ${EASE} ${delay}ms`}}><div style={{flexShrink:0,fontSize:42,fontFamily:MONO,fontWeight:700,color:`${C.red}`,letterSpacing:"-0.04em",lineHeight:1}}>{n}</div><div><h3 style={{fontSize:24,fontWeight:600,margin:"0 0 10px",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h3><p style={{fontSize:15,color:C.dim,margin:0,lineHeight:1.6}}>{body}</p></div></div>);
 };
-const CASES_LIST=[
-  ["Aortic dissection","presenting as MI or stroke"],["Subarachnoid hemorrhage","as the headache that's 'better now'"],
-  ["Early septic shock","with a normal blood pressure"],["Mesenteric ischemia","pain wildly out of proportion"],
-  ["Atypical STEMI","in women, in diabetics, in the elderly"],["PE","in the patient dismissed as anxious"],
-  ["Necrotizing fasciitis","that looked like cellulitis"],["Temporal arteritis","the headache in the 72-year-old"],
-  ["Testicular torsion","presenting as abdominal pain"],["Cauda equina","the back pain with subtle retention"],
-];
 const kicker={fontSize:12,letterSpacing:"0.32em",textTransform:"uppercase",color:C.amber};
+// The catalog is described by its size, never by its diagnoses: a list of patterns on the way in is a study sheet.
+const catalogBreadth=()=>{try{const C2=CASES_();const n=(C2.CATALOG||[]).length,d=(C2.DOMAINS||[]).length,b=(C2.CATALOG||[]).filter(e=>e.bucket==="benign").length;return n?{n,d,benign:b}:null}catch{return null}};
 const Landing=({onEnter,onSettings,returning})=>{
   const [m,setM]=useState(false);useEffect(()=>{setM(true)},[]);
   return(<div style={{minHeight:"100dvh",background:C.bg,color:C.text,fontFamily:SERIF}}>
@@ -455,9 +450,8 @@ const Landing=({onEnter,onSettings,returning})=>{
       <p style={{fontSize:15,lineHeight:1.7,fontWeight:600,marginTop:14,marginBottom:0}}>This one does.</p>
     </section>
     <section style={{padding:"72px 24px",borderTop:`1px solid ${C.border}`}}>
-      <div className="mono" style={{...kicker,marginBottom:32}}>The cases you'll see</div>
-      {CASES_LIST.map(([a,b])=>(<div key={a} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:16,padding:"12px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:15,fontWeight:600,letterSpacing:"-0.01em",flexShrink:0}}>{a}</span><span className="display" style={{fontSize:14,color:C.faint,textAlign:"right"}}>{b}</span></div>))}
-      <p style={{marginTop:18,fontSize:13,color:C.faint,fontStyle:"italic",lineHeight:1.65}}>Plus everything else — the ear infections, the sprained ankles, the nursing home transfers, the unplanned delivery, the farm injury, the kid with RSV at 2 AM. Rural medicine in full.</p>
+      <div className="mono" style={{...kicker,marginBottom:28}}>What comes through the door</div>
+      {(()=>{const b=catalogBreadth();return(<p style={{fontSize:17,lineHeight:1.6,margin:0,maxWidth:480}}>{b?`${b.n} patterns across ${b.d} domains, ${b.benign} of them benign`:"Every pattern a critical access hospital sees"} — the sore throat and the sprained ankle, the nursing-home transfer, the unplanned delivery, the farm injury, the kid who can't breathe at 2 AM. Each one wears a different presentation each time. Nothing on the doorway says which is in the room.</p>)})()}
     </section>
     <section style={{padding:"64px 24px",borderTop:`1px solid ${C.border}`}}>
       <div className="mono" style={{...kicker,marginBottom:28}}>What this is not</div>
@@ -624,7 +618,7 @@ const SettingsSheet=({onClose,onAbout,onChanged})=>{
 };
 
 // ── LOADING ─────────────────────────────────────────────────────────────────
-const STAGE_TEXT={case:"Writing the case",review:"Checking the medicine",results:"Writing the results sheet"};
+const STAGE_TEXT={case:"Writing the case",review:"A second physician is checking the medicine while the results sheet is written",results:"Writing the results sheet"};
 const Loading=({cond,stage,error,onRetry,onHome,onSettings})=>(
   <div style={{minHeight:"100dvh",display:"flex",flexDirection:"column",padding:"0 16px",maxWidth:560,margin:"0 auto"}}>
     <header style={{height:56,display:"flex",alignItems:"center"}}><IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn></header>

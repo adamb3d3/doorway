@@ -791,7 +791,6 @@
     }
     function maybeReview(caseA) {
       if (!CONFIG.review) return Promise.resolve(caseA);
-      stage("review");
       return reviewCase(seed, caseA).then(function (r1) {
         var blocking = r1.issues.filter(function (i) { return i.severity === "block"; });
         if (!blocking.length) { caseA.review = { first: r1, regenerated: false, second: null }; return caseA; }
@@ -809,28 +808,37 @@
         return caseA;
       });
     }
-    return writeCase().then(maybeReview).then(function (caseA) {
-      stage("results");
-      var forB = { persona: caseA.persona, vitals0: caseA.vitals0, trajectory: caseA.trajectory, physicality: caseA.physicality, answerKey: { trueDx: caseA.answerKey.trueDx } };
+    function resultsFor(ca) {
+      var forB = { persona: ca.persona, vitals0: ca.vitals0, trajectory: ca.trajectory, physicality: ca.physicality, answerKey: { trueDx: ca.answerKey.trueDx } };
       var userB = seedText + "\n\nCASE:\n" + JSON.stringify(forB) +
         "\n\nWrite {\"results\":{...}} for every label. Results reflect time 0. JSON only.";
       return callJSON("results", sysBlocks([RESULTS_SYSTEM]), userB, CONFIG.maxTokens.results, function (raw) {
         if (!raw || typeof raw.results !== "object") throw invalid("missing results");
         return raw;
       }, "results sheet", SCHEMAS.results).then(function (rawB) {
-        return normalizeResults(rawB, caseA);
+        return normalizeResults(rawB, ca);
       }, function (err) {
         // Degrade rather than fail: every result goes to the model at order time.
         if (err && err.dailyLimit) throw err;
-        return normalizeResults({ results: {} }, caseA);
-      }).then(function (r) {
-        var c = assign({}, caseA);
-        c.results = r.results;
-        c._filled = r.filled;
-        c.seed = seed;
-        c.startedAt = now();
-        c.id = seed.caseId;
-        return c;
+        return normalizeResults({ results: {} }, ca);
+      });
+    }
+    // The review and the results sheet do not depend on each other, so they run together; if the
+    // review replaces the case, the sheet is written again for the new draft.
+    return writeCase().then(function (caseA) {
+      stage(CONFIG.review ? "review" : "results");
+      return Promise.all([maybeReview(caseA), resultsFor(caseA)]).then(function (pair) {
+        var caseX = pair[0];
+        var sheet = caseX === caseA ? Promise.resolve(pair[1]) : (stage("results"), resultsFor(caseX));
+        return sheet.then(function (r) {
+          var c = assign({}, caseX);
+          c.results = r.results;
+          c._filled = r.filled;
+          c.seed = seed;
+          c.startedAt = now();
+          c.id = seed.caseId;
+          return c;
+        });
       });
     });
   }
