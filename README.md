@@ -29,7 +29,9 @@ No build step, no database, no login. Files are uploaded to GitHub and Vercel se
 | `cases.js` | Case catalog, facility profile, conditions roll, case selection. |
 | `engine.js` | API client, prompts, clock and vitals model, grading, storage, miss queue, export and import. |
 | `app.jsx` | The React UI, compiled in the browser. |
-| `api/claude.js` | Serverless proxy to the Anthropic API. Allows only Sonnet 5.5, caps output tokens by call kind, limits each IP per day, refuses calls from other sites, and accepts a user's own key. |
+| `api/claude.js` | Serverless proxy to the Anthropic API. Allows Sonnet 5.5 and Opus 5.5, forwards an allowlisted `output_config` (effort, JSON schema) and `thinking`, caps output tokens by call kind, limits each IP per day, refuses calls from other sites, and accepts a user's own key. |
+| `design/` | Three independent design reviews (UX, game design, visual) and the v3.2 brief built from them. Not deployed. |
+| `test/live.mjs`, `test/regrade.mjs` | Live harness: a model plays Derek through real cases against the real API and proxy code, saving every exchange; a regrade tool measures grader consistency. |
 | `sw.js` | Service worker: app files network-first with a 3 s fallback to the cached copy, fonts and CDN scripts cache-first, `/api/` never cached. |
 | `manifest.json`, `icon-*.png`, `apple-touch-icon.png` | Home-screen install. |
 | `vercel.json` | Gives the proxy 120 s (case generation is slow) and stops `index.html` and `sw.js` from being cached. |
@@ -51,12 +53,13 @@ The server key is rate-limited per IP per day, by call kind:
 
 | Kind (`X-DW-Kind`) | Per IP per day | Max output tokens |
 |---|---|---|
-| `case` | 12 | 4000 |
-| `results` | 12 | 4000 |
-| `turn` | 400 | 1500 |
-| `grade` | 15 | 1500 |
+| `case` | 60 | 16000 |
+| `results` | 60 | 16000 |
+| `review` | 60 | 8000 |
+| `turn` | 2000 | 6000 |
+| `grade` | 60 | 8000 |
 
-A missing or unknown kind is refused (400). A call that fails upstream, or whose browser disconnects before the answer, gives its slot back. Users with their own key skip the limits. The client IP is read from `x-vercel-forwarded-for`, then `x-real-ip`, then `x-forwarded-for`. The limits live in one function instance's memory and reset on a cold start, so treat them as a brake, not a ceiling; the Console spend limit is the ceiling.
+The token caps include the model's thinking tokens (Sonnet 5.5 and Opus 5.5 reason before they answer, and `max_tokens` is a ceiling on both), which is why they are generous; a reply cut off by the cap comes back as a readable "ran out of room" error. The daily limits are a brake against a runaway client, not a budget. A missing or unknown kind is refused (400). A call that fails upstream, or whose browser disconnects before the answer, gives its slot back. Users with their own key skip the limits. The client IP is read from `x-vercel-forwarded-for`, then `x-real-ip`, then `x-forwarded-for`. The limits live in one function instance's memory and reset on a cold start, so treat them as a brake, not a ceiling; the Console spend limit is the ceiling.
 
 ### Allowed origins
 
@@ -64,7 +67,7 @@ When a request carries an `Origin` (or, failing that, a `Referer`) header, its h
 
 ## Model
 
-Claude Sonnet 5.5 for case writing, patient conversation and grading. Each new case is two calls (the case, then its results sheet), and each free-text turn and each grade is one more. Most chip orders cost nothing because results are served from the sheet. Users who add their own API key in Settings skip the daily case limit and pay for their own use.
+Claude Sonnet 5.5 for case writing, patient conversation and grading by default; `CONFIG` near the top of `engine.js` sets the model, thinking effort and token ceiling per call kind (`case`, `results`, `review`, `turn`, `grade`), and the proxy also allows Opus 5.5. Each new case is two calls (the case, then its results sheet), and each free-text turn and each grade is one more. Most chip orders cost nothing because results are served from the sheet. Two options are off until the live runs show they earn their keep: `CONFIG.structured` sends a JSON schema with every call so the reply cannot come back malformed, and `CONFIG.review` has a second call check the medicine in each generated case (doses, contraindications, disposition) and regenerate once on a blocking error. A request the model declines (`stop_reason: "refusal"`) surfaces as a readable error and is not retried. Users who add their own API key in Settings skip the daily case limit and pay for their own use.
 
 ## Privacy
 
@@ -84,7 +87,21 @@ node --test test/api.test.mjs     # proxy: kinds, token caps, per-kind limits, o
 node test/smoke.js                # full loop in Chromium at 390x844, fake API, screenshots in shots/v3/
 ```
 
-The smoke test needs Playwright (`npm i -D playwright && npx playwright install chromium`), Python 3 for the local server, and network access to unpkg.com. It fails on any console error.
+The smoke test needs Playwright, Python 3 for the local server, and network access to unpkg.com. It fails on any console error. Keep Playwright out of the repo so Vercel never sees a `package.json`: install it in a sibling folder and point `NODE_PATH` at it, e.g. `NODE_PATH=../_tools/pw/node_modules node test/smoke.js`.
+
+### Live runs (real model, real cost)
+
+Put the server key in a `.env` file at the repo root (`ANTHROPIC_API_KEY=sk-ant-...`; the file is gitignored and never deployed). Then:
+
+```
+node test/live.mjs --n 5 --mode drill                                   # 5 cases, a model plays Derek
+node test/live.mjs --n 20 --models case=opus,grade=opus,review=opus --review --structured
+node test/live.mjs --dx stroke_tnk,bh_boarding,apap_od                  # force diagnoses
+node test/regrade.mjs runs/<dir> --cases 1,3,5 --models sonnet,opus --n 3   # grader spread
+node test/live.mjs --n 2 --stub                                         # plumbing check, no key, no cost
+```
+
+Every exchange lands under `runs/<timestamp>/case-NN/` (request, response, timing, tokens, the transcript, the grade) with a `summary.md` per run: generation seconds, turns, score, whether the true diagnosis was caught, leak flags (true-diagnosis words in the patient's replies), truncations, refusals and cost. The `runs/` folder is gitignored.
 
 ## Contributing
 
