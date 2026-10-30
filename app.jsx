@@ -624,13 +624,14 @@ const SettingsSheet=({onClose,onAbout,onChanged})=>{
 };
 
 // ── LOADING ─────────────────────────────────────────────────────────────────
-const Loading=({cond,error,onRetry,onHome,onSettings})=>(
+const STAGE_TEXT={case:"Writing the case",review:"Checking the medicine",results:"Writing the results sheet"};
+const Loading=({cond,stage,error,onRetry,onHome,onSettings})=>(
   <div style={{minHeight:"100dvh",display:"flex",flexDirection:"column",padding:"0 16px",maxWidth:560,margin:"0 auto"}}>
     <header style={{height:56,display:"flex",alignItems:"center"}}><IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn></header>
     <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:18,paddingBottom:80}}>
       {cond?<ConditionsStrip cond={cond}/>:<div className="mono" style={{fontSize:12,color:C.faint,letterSpacing:"0.06em"}}>Rolling tonight's conditions…</div>}
       {!error&&<div className="display pulse-slow" role="status" aria-live="polite" style={{fontSize:40,lineHeight:1.1}}>Patient arriving…</div>}
-      {!error&&<div style={{fontSize:14,color:C.dim,lineHeight:1.6}}>The case is being written. This can take up to a minute.</div>}
+      {!error&&<div style={{fontSize:14,color:C.dim,lineHeight:1.6}}>{STAGE_TEXT[stage]||"The case is being written"}… A new case takes a minute or two; the next one is written while you read the debrief.</div>}
       <ErrorBox error={error} onRetry={onRetry} onSettings={onSettings}/>
     </div>
   </div>);
@@ -1086,7 +1087,7 @@ const App=()=>{
   const curCase=useRef(null);
   const setEnc=e=>{curCase.current=e?seedOf(e).caseId||null:null;setEncRaw(e)};
   const updateEnc=e=>{if(e&&seedOf(e).caseId===curCase.current)setEncRaw(e)};
-  const [load,setLoad]=useState({cond:null,error:null,mode:"shift"});
+  const [load,setLoad]=useState({cond:null,stage:null,error:null,mode:"shift"});
   const [debrief,setDebrief]=useState(null);
   const [refresh,setRefresh]=useState(0);
   const bump=()=>setRefresh(r=>r+1);
@@ -1096,10 +1097,10 @@ const App=()=>{
   const goHome=()=>{bump();setView("home")};
   const next=async mode=>{
     mode=mode||(getSettings().mode==="drill"?"drill":"shift");
-    setDebrief(null);setLoad({cond:null,error:null,mode});setView("loading");
+    setDebrief(null);setLoad({cond:null,stage:null,error:null,mode});setView("loading");
     try{
       // newCase uses the prefetched case when one is ready or in flight; onSeed fires before generation.
-      const c=await DW_().newCase({mode,onSeed:s=>{if(s&&s.conditions)setLoad(l=>({...l,cond:s.conditions}))}});
+      const c=await DW_().newCase({mode,onSeed:s=>{if(s&&s.conditions)setLoad(l=>({...l,cond:s.conditions}))},onStage:st=>setLoad(l=>({...l,stage:st}))});
       const e=DW_().startEncounter(c);
       setEnc(e);setSaveWarn(!!e.saveFailed);setView("doorway");haptic(20);
     }catch(err){setLoad(l=>({...l,error:errMsg(err)}))}
@@ -1127,7 +1128,7 @@ const App=()=>{
 
   let body=null;
   if(view==="landing")body=<Landing returning={!!lsGet("dw_ui_seen_landing")} onEnter={()=>{lsSet("dw_ui_seen_landing","1");goHome()}} onSettings={()=>setSettingsOpen(true)}/>;
-  else if(view==="loading")body=<Loading cond={load.cond} error={load.error} onRetry={()=>next(load.mode)} onHome={goHome} onSettings={()=>setSettingsOpen(true)}/>;
+  else if(view==="loading")body=<Loading cond={load.cond} stage={load.stage} error={load.error} onRetry={()=>next(load.mode)} onHome={goHome} onSettings={()=>setSettingsOpen(true)}/>;
   else if(view==="doorway"&&enc)body=<Doorway key={seedOf(enc).caseId||"d"} enc={enc} onLock={lock} onHome={goHome}/>;
   else if(view==="workup"&&enc)body=<Workup key={seedOf(enc).caseId||"w"} enc={enc} setEnc={updateEnc} saveWarn={saveWarn} onHome={goHome} onGraded={graded} onSettings={()=>setSettingsOpen(true)}/>;
   else if(view==="debrief"&&debrief)body=<Debrief data={debrief} onNext={()=>next()} onHome={goHome}/>;

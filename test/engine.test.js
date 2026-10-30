@@ -773,10 +773,14 @@ test("extractJSON tolerates fences, prose and trailing commas", function () {
 // ── UI helpers: onSeed, hasPrefetched, saveReflection, getResult ────────────
 test("newCase calls onSeed(seed) before the first API call; also for prefetched and in-flight cases", async function () {
   reset();
-  var seen = null, callsAtSeed = -1;
-  var c = await DW.newCase({ mode: "drill", onSeed: function (s) { seen = s; callsAtSeed = calls.length; } });
+  var seen = null, callsAtSeed = -1, stages = [];
+  var c = await DW.newCase({ mode: "drill", onSeed: function (s) { seen = s; callsAtSeed = calls.length; }, onStage: function (s) { stages.push(s); } });
   assert(seen && seen.conditions && seen.caseId === c.seed.caseId);
   assert.strictEqual(callsAtSeed, 0, "onSeed fires before generation");
+  assert.deepStrictEqual(stages, ["case", "results"], "stages reported as each call starts");
+  DW._.CONFIG.review = true;
+  try { stages = []; await DW.newCase({ onStage: function (s) { stages.push(s); } }); assert.deepStrictEqual(stages, ["case", "review", "results"]); }
+  finally { DW._.CONFIG.review = false; }
   // a throwing callback does not break generation
   await DW.newCase({ onSeed: function () { throw new Error("ui bug"); } });
   // in flight

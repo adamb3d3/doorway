@@ -777,14 +777,18 @@
     }, "case review", SCHEMAS.review);
   }
 
-  function generateCase(seed) {
+  // onStage("case" | "review" | "results") fires as each call starts, so a screen can say what it is waiting for.
+  function generateCase(seed, onStage) {
+    var stage = function (s) { if (typeof onStage === "function") { try { onStage(s); } catch (e) { /* UI only */ } } };
     var seedText = "SEED:\n" + JSON.stringify(seedForPrompt(seed), null, 1) + "\n\n" + conditionsText(seed.conditions, seed.transferTwist);
     var userA = seedText + "\n\nWrite the case now. JSON only.";
     function writeCase(extra) {
+      stage("case");
       return callJSON("case", sysBlocks([CASE_SYSTEM]), userA + (extra || ""), CONFIG.maxTokens["case"], function (raw) { return normalizeCaseA(raw, seed); }, "case", SCHEMAS["case"]);
     }
     function maybeReview(caseA) {
       if (!CONFIG.review) return Promise.resolve(caseA);
+      stage("review");
       return reviewCase(seed, caseA).then(function (r1) {
         var blocking = r1.issues.filter(function (i) { return i.severity === "block"; });
         if (!blocking.length) { caseA.review = { first: r1, regenerated: false, second: null }; return caseA; }
@@ -803,6 +807,7 @@
       });
     }
     return writeCase().then(maybeReview).then(function (caseA) {
+      stage("results");
       var forB = { persona: caseA.persona, vitals0: caseA.vitals0, trajectory: caseA.trajectory, physicality: caseA.physicality, answerKey: { trueDx: caseA.answerKey.trueDx } };
       var userB = seedText + "\n\nCASE:\n" + JSON.stringify(forB) +
         "\n\nWrite {\"results\":{...}} for every label. Results reflect time 0. JSON only.";
@@ -833,12 +838,12 @@
     try { onSeed(seed); } catch (e) { /* a UI callback must never break generation */ }
   }
   // Picks the seed, hands it to onSeed (so the UI can show conditions while the case is written), then generates.
-  function newCaseFresh(mode, onSeed, beforeGenerate) {
+  function newCaseFresh(mode, onSeed, beforeGenerate, onStage) {
     var seed;
     try { seed = CASES.pickCase(stats(), { mode: mode || settings.get().mode }); } catch (e) { return Promise.reject(e); }
     if (beforeGenerate) beforeGenerate(seed);
     callOnSeed(onSeed, seed);
-    return generateCase(seed);
+    return generateCase(seed, onStage);
   }
   function readPrefetched() {
     var c = lsJSON("dw_next", null);
@@ -867,19 +872,21 @@
     p.catch(function () { /* handled by whoever awaits; avoid unhandled-rejection noise */ });
     return p;
   }
-  // newCase({mode, onSeed}): onSeed(seed) is called before generation starts (or at once for a ready case).
+  // newCase({mode, onSeed, onStage}): onSeed(seed) is called before generation starts (or at once for a
+  // ready case); onStage names the call in progress when a case has to be written now.
   function newCase(opts) {
     opts = opts || {};
     if (inflight) {
       var waiting = inflight;
       callOnSeed(opts.onSeed, inflightSeed);
+      if (typeof opts.onStage === "function") { try { opts.onStage("case"); } catch (e) { /* UI only */ } }
       return waiting.then(function () {
-        return takePrefetched() || newCaseFresh(opts.mode, opts.onSeed);
-      }, function () { return newCaseFresh(opts.mode, opts.onSeed); });
+        return takePrefetched() || newCaseFresh(opts.mode, opts.onSeed, null, opts.onStage);
+      }, function () { return newCaseFresh(opts.mode, opts.onSeed, null, opts.onStage); });
     }
     var ready = takePrefetched();
     if (ready) { callOnSeed(opts.onSeed, ready.seed); return Promise.resolve(ready); }
-    return newCaseFresh(opts.mode, opts.onSeed);
+    return newCaseFresh(opts.mode, opts.onSeed, null, opts.onStage);
   }
 
   // ── Encounter ─────────────────────────────────────────────────────────────
