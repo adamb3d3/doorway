@@ -1,6 +1,6 @@
 // The Doorway v3 — UI. Compiled in-browser by @babel/standalone (preset react).
 // Talks only to window.DW (engine.js) and window.DW_CASES (cases.js).
-const {useState,useEffect,useRef,useMemo,useCallback}=React;
+const {useState,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 
 // ── TOKENS ──────────────────────────────────────────────────────────────────
 const MONO="'JetBrains Mono',ui-monospace,monospace";
@@ -236,7 +236,7 @@ const Avatar=({phys,still})=>{
   if(!phys)return null;
   const{fitz=3,rrRate=16,pallor=0,diaphoresis=0,cyanosis=0,jaundice=0,eyeState="open",positioning="supine",distressLevel=0}=phys;
   const fz=clamp(Math.round(fitz),1,6);const skin=rgb(applyPallor(FITZ_RGB[fz-1],pallor));
-  const pose=positioning==="tripod"?"tripod":positioning==="fetal"?"fetal":positioning==="supine"?"supine":(distressLevel>=3||eyeState==="closed")?"slumped":"upright";
+  const pose=positioning==="tripod"?"tripod":positioning==="fetal"?"fetal":positioning==="supine"?"supine":(distressLevel>=2||eyeState!=="open")?"slumped":"upright";
   const s=SIL[pose];const breath=`${(60/Math.max(8,rrRate)).toFixed(2)}s`;
   const cy=Math.min(1,cyanosis*0.3),ja=Math.min(1,jaundice*0.3),dia=Math.min(1,diaphoresis*0.3);
   const shape=(fill,extra)=><g {...extra}><circle cx={s.head[0]} cy={s.head[1]} r={s.head[2]} fill={fill}/><path d={s.body} fill={fill}/></g>;
@@ -660,7 +660,7 @@ const Doorway=({enc,onLock,onHome})=>{
   const v=vitalsNow(enc);
   const all=sick!=null&&acuity!=null&&dispo!=null;
   const rule=useMemo(()=>{const r=(safeStats().rules||[])[0];return r&&r.rule?r:null},[]);
-  useEffect(()=>{if(reduced){setMonitor(true);return}const t=setTimeout(()=>setMonitor(true),650);return()=>clearTimeout(t)},[reduced]);
+  useEffect(()=>{if(reduced){setMonitor(true);return}const t=setTimeout(()=>setMonitor(true),450);return()=>clearTimeout(t)},[reduced]);
   const lock=(timedOut)=>{
     const gut={sick,acuity:acuity??null,gutDispo:dispo,timedOut:!!timedOut};
     const go=()=>{try{onLock(gut)}catch(e){setClosing(false);setErr(errMsg(e))}};
@@ -834,12 +834,12 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
         <IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn>
         <button onClick={()=>setWho(true)} aria-label={`About ${p.name||"the patient"}`} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:34,height:40,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`}}><Avatar phys={physNow} still/></div></button>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"baseline",gap:8}}><span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>T+{shownMin}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
-            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap"}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"crew at bedside"):(tr.status||"")}</span>}</div>
-          <div style={{display:"flex",gap:8,alignItems:"center",minWidth:0}}>
-            <span className="mono" style={{fontSize:12,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 auto",minWidth:0}}>{p.name||"Patient"}{ageLine?` · ${ageLine}`:""}{p.chiefComplaint?` · ${p.chiefComplaint}`:""}</span>
-            <span className="mono" style={{fontSize:12,color:C.dim,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4,flexShrink:0}} aria-label="Locked gut"><Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></span>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,minWidth:0}}>
+            <span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>T+{shownMin}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
+            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"at bedside"):(tr.status||"")}</span>}
+            <span className="mono" style={{marginLeft:"auto",fontSize:12,color:C.dim,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4,flexShrink:0}} aria-label="Locked gut"><Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></span>
           </div>
+          <div className="mono" style={{fontSize:12,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name||"Patient"}{ageLine?` · ${ageLine}`:""}{p.chiefComplaint?` · ${p.chiefComplaint}`:""}</div>
         </div>
         <Btn kind={crewHere?"lock":"line"} onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 12px"}}>Commit</Btn>
       </div>
@@ -927,6 +927,8 @@ const Pairs=({d})=>(
 // their minute and are nudged down when they collide; DOM order stays by minute.
 const layoutColumn=(items,scale,rowH)=>{const sorted=items.slice().sort((a,b)=>a.m-b.m||a.o-b.o);let y=0;return sorted.map(it=>{const top=Math.max(it.m*scale,y);y=top+rowH(it)+8;return{...it,top}})};
 const Ruler=({enc,grade,answers,ak})=>{
+  const [hs,setHs]=useState({});
+  const refs=useRef({});
   const end=Math.max(1,Number(enc.simMin)||0);
   const clampM=v=>Math.max(0,Math.min(Number(v)||0,end));
   const crits=grade.criticalActions||[];
@@ -938,24 +940,27 @@ const Ruler=({enc,grade,answers,ak})=>{
   (grade.divergences||[]).forEach((d,i)=>mine.push({m:clampM(d.atMin),o:3,kind:"div",did:d.did,should:d.shouldHave,key:"v"+i}));
   mine.push({m:end,o:9,kind:"commit",text:(answers&&answers.finalDispo)||"—",key:"commit"});
   const scale=Math.max(1.4,Math.min(3.2,560/end));
-  const rowH=it=>it.kind==="div"?66:it.kind==="order"?(it.vitals?54:36):it.kind==="ideal"?34:40;
+  // Heights are measured after the first paint (text wraps unpredictably at 157px); until then an estimate.
+  const est=it=>{const chars=it.kind==="div"?((it.did||"").length+(it.should||"").length+24):(it.text||"").length;const lines=Math.max(1,Math.ceil(chars/22));return (it.kind==="ideal"||it.kind==="order"?0:18)+lines*18+(it.vitals?16:0)+4};
+  const rowH=it=>hs[it.key]||est(it);
   const L=layoutColumn(ideal,scale,rowH),R=layoutColumn(mine,scale,rowH);
   const H=Math.max(end*scale,...L.map(i=>i.top+rowH(i)),...R.map(i=>i.top+rowH(i)))+16;
+  useLayoutEffect(()=>{const next={};let changed=false;Object.entries(refs.current).forEach(([k,el])=>{if(!el)return;const h=el.offsetHeight;next[k]=h;if(hs[k]!==h)changed=true});if(changed)setHs(next)});
   const step=end>180?60:end>90?30:15;const stamps=[];for(let m=0;m<=end;m+=step)stamps.push(m);
   const bands=crits.filter(a=>a.windowMin!=null&&a.status!=="done").map((a,i)=><div key={"w"+i} aria-hidden style={{position:"absolute",left:0,right:0,top:0,height:clampM(a.windowMin)*scale,background:a.status==="missed"?"rgba(139,0,0,0.09)":"rgba(212,160,74,0.06)",borderBottom:`1px dashed ${a.status==="missed"?C.red:C.amber}`}}/>);
-  const tag=(color,t)=><div className="mono" style={{fontSize:12,color,letterSpacing:"0.08em",textTransform:"uppercase"}}>{t}</div>;
+  const tag=(color,t)=><div className="mono" style={{fontSize:12,color,letterSpacing:"0.06em",textTransform:"uppercase"}}>{t}</div>;
   const item=(it,withAttrs)=>{
     let body;
     if(it.kind==="ideal")body=<div style={{color:C.dim}}>{it.text}</div>;
     else if(it.kind==="missed")body=<>{tag(C.redText,`Missed · by T+${it.win}`)}<div>{it.text}</div></>;
     else if(it.kind==="order")body=<><div style={{color:C.doc}}>{it.text}</div>{it.vitals&&<div className="mono" style={{fontSize:12,color:C.faint,marginTop:2}}>HR {it.vitals.HR} · BP {it.vitals.SBP}/{it.vitals.DBP} · SpO₂ {it.vitals.SpO2}%</div>}</>;
     else if(it.kind==="event")body=<>{tag(C.redText,"Event")}<div>{it.text}</div></>;
-    else if(it.kind==="done")body=<>{tag(C.good,"Critical action · on time")}<div>{it.text}</div></>;
-    else if(it.kind==="late")body=<>{tag(C.amber,`Critical action · +${it.late} min late`)}<div>{it.text}</div></>;
+    else if(it.kind==="done")body=<>{tag(C.good,"On time")}<div>{it.text}</div></>;
+    else if(it.kind==="late")body=<>{tag(C.amber,`+${it.late} min late`)}<div>{it.text}</div></>;
     else if(it.kind==="div")body=<>{tag(C.indigo,"Divergence")}<div style={{color:C.dim}}>You: {it.did}</div><div>Should have: {it.should}</div></>;
     else body=<>{tag(C.dim,"Committed")}<div>{it.text}</div></>;
     const attrs=withAttrs?{"data-tl-min":Math.round(it.m),"data-tl-kind":it.kind}:{};
-    return<div key={it.key} {...attrs} style={{position:"absolute",top:it.top,left:0,right:0,fontSize:14,lineHeight:1.3}}>{body}</div>;
+    return<div key={it.key} ref={el=>{refs.current[it.key]=el}} {...attrs} style={{position:"absolute",top:it.top,left:0,right:0,fontSize:14,lineHeight:1.3}}>{body}</div>;
   };
   const lateLines=R.filter(it=>it.kind==="late"&&it.win!=null).map(it=><div key={"ll"+it.key} aria-hidden style={{position:"absolute",left:21,top:clampM(it.win)*scale,height:Math.max(0,it.top-clampM(it.win)*scale),borderLeft:`2px solid ${C.amber}`}}/>);
   return(<div>
