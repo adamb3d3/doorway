@@ -48,3 +48,7 @@ Each is a taste or a policy call. My recommendation in brackets.
 **After the decisions above:** silhouette; red removal and button language; doorway restructure and reveal; patient sheet from the Workup header; composer with tokens instead of the tray; event banner as overlay; vitals tiles to the new spec; debrief ruler; rules on Home and the doorway; blind re-exposure; Shift/Drill split; Home under ten cases.
 
 **Not doing** (game reviewer's list, agreed): no real-time clock or idle penalty; no score where he looks most; no streaks, badges or difficulty ladder; nothing on the doorway that describes the case.
+
+## Status, 30 Oct evening
+
+Everything in "Build order" is built on branch `v3.2-live-tuning`, including all eight decisions (Ted delegated them: all yes). Added since the brief, from the first live batch: labs and send-out imaging are pending until the clock reaches them (the batch-max rule skipped him 45 minutes when he bundled labs with treatments); transfer chips apply their intervention; a plan at disposition runs as his final orders; the turn prompt reports only the current minute and does not re-narrate what the buttons did. Not done: a second ESI reading at commit (optional), the first-session wait with the Opus writer (~2 minutes; second round of live runs is measuring a medium-effort Opus writer and a Sonnet writer).
