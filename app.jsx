@@ -9,9 +9,9 @@ const DISPLAY="'Instrument Serif',Georgia,serif";
 const EASE="cubic-bezier(0.2,0.8,0.2,1)";
 const C={
   bg:"#0a0a0a",bg2:"#141414",bg3:"#1a1a1a",
-  text:"#f5f1e8",dim:"rgba(245,241,232,0.65)",faint:"#8f897f",
+  text:"#f5f1e8",dim:"rgba(245,241,232,0.75)",faint:"#9a9488",
   border:"rgba(245,241,232,0.12)",
-  red:"#8B0000",redBright:"#a51c1c",redDim:"rgba(139,0,0,0.4)",redText:"#d14b4b",
+  red:"#8B0000",redBright:"#a51c1c",redDim:"rgba(139,0,0,0.4)",redText:"#e05a5a",
   amber:"#d4a04a",amberBg:"rgba(180,120,40,0.10)",amberBorder:"rgba(212,160,74,0.45)",
   slateBg:"rgba(80,95,120,0.12)",slateBorder:"rgba(122,133,153,0.30)",
   indigo:"#9098c4",indigoBg:"rgba(90,100,140,0.10)",indigoBorder:"rgba(144,152,196,0.35)",
@@ -30,13 +30,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-vi
 input,textarea{font-family:inherit}
 input[type=range]{accent-color:${C.red};width:100%;height:44px}
 .scrollx::-webkit-scrollbar{display:none}.scrollx{scrollbar-width:none}
-.display{font-family:${DISPLAY};font-style:italic;font-weight:400}
+.display{font-family:${DISPLAY};font-style:normal;font-weight:400}
+.display-i{font-family:${DISPLAY};font-style:italic;font-weight:400}
 .mono{font-family:${MONO}}
 details>summary{list-style:none;cursor:pointer}details>summary::-webkit-details-marker{display:none}
 @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes pulse-slow{0%,100%{opacity:1}50%{opacity:.4}}
-@keyframes vital-pulse{0%,100%{box-shadow:inset 0 0 0 1px rgba(209,75,75,0.4)}50%{box-shadow:inset 0 0 0 1px rgba(209,75,75,0.9),0 0 12px rgba(209,75,75,0.25)}}
-@keyframes flash-once{0%{background:rgba(139,0,0,0.75)}100%{background:rgba(139,0,0,0.10)}}
+@keyframes flash-once{0%,65%{background:#8B0000}100%{background:rgba(245,241,232,0.02)}}
 @keyframes ekg-sweep{0%{stroke-dashoffset:2400}100%{stroke-dashoffset:0}}
 @keyframes hr-flicker{0%,40%,100%{opacity:1}45%,55%{opacity:.55}}
 @keyframes bubble-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -47,7 +47,6 @@ details>summary{list-style:none;cursor:pointer}details>summary::-webkit-details-
 .case-fade{animation:case-fade 600ms ${EASE} both}
 .sheet-up{animation:sheet-up 180ms ${EASE} both}
 .banner-in{animation:banner-in 220ms ${EASE} both}
-.vital-bad{animation:vital-pulse 1.5s ${EASE} infinite}
 .flash-once{animation:flash-once 900ms ${EASE} 1}
 .pulse-slow{animation:pulse-slow 2.6s ease-in-out infinite}
 .chip:active{transform:scale(0.96)}
@@ -130,8 +129,21 @@ const BTN={
   line:{background:"transparent",color:C.text,border:`1px solid ${C.border}`},
   ghost:{background:"transparent",color:C.dim,border:"1px solid transparent"}
 };
-const Btn=({kind="line",children,style,disabled,...p})=><button disabled={disabled} {...p} style={{minHeight:44,padding:"0 16px",borderRadius:4,fontFamily:MONO,fontSize:12,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:500,opacity:disabled?0.4:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:10,...BTN[kind],...style}}>{children}</button>;
+// Disabled is a visible state (outline, dim text), never a faded copy of the enabled button.
+const Btn=({kind="line",children,style,disabled,...p})=><button disabled={disabled} {...p} style={{minHeight:44,padding:"0 16px",borderRadius:4,fontFamily:MONO,fontSize:12,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:500,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:10,...(disabled?{background:"transparent",color:C.faint,border:`1px solid ${C.border}`}:BTN[kind]),...style}}>{children}</button>;
 const IconBtn=({label,children,style,...p})=><button aria-label={label} title={label} {...p} style={{minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",color:C.dim,fontSize:18,borderRadius:4,...style}}>{children}</button>;
+// Line icons in the text colour; the only full-colour objects on the page should be the patient and the monitor.
+const ICONS={
+  settings:<><path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></>,
+  mic:<><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></>,
+  lock:<><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></>,
+  warn:<><path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5M12 18v.5"/></>,
+  close:<path d="M6 6l12 12M18 6 6 18"/>,
+  back:<path d="M15 5l-7 7 7 7"/>,
+};
+const Icon=({name,size=18,color="currentColor",style})=><svg aria-hidden viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{display:"block",flexShrink:0,...style}}>{ICONS[name]}</svg>;
+// Section titles are larger than what they head; the 12px tracked caption is for tile keys and stamps only.
+const SectionTitle=({children,style,size=18,color=C.text})=><div style={{fontSize:size,fontWeight:600,letterSpacing:"-0.01em",lineHeight:1.25,color,...style}}>{children}</div>;
 
 // Choice grid: options = [{v,label,sub?}]
 const Choice=({options,value,onChange,cols,activeColor=C.red,activeText=C.text,activeBorder,big,label})=>(
@@ -155,8 +167,8 @@ const Sheet=({title,onClose,children,maxH="88dvh"})=>{
   return(<div style={{position:"fixed",inset:0,zIndex:100,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
     <div role="dialog" aria-modal="true" aria-label={title} className="sheet-up" style={{width:"100%",maxWidth:560,maxHeight:maxH,overflowY:"auto",background:C.bg2,border:`1px solid ${C.border}`,borderBottom:"none",borderRadius:"14px 14px 0 0",padding:"8px 18px calc(20px + env(safe-area-inset-bottom))"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <Label color={C.redText}>{title}</Label>
-        <IconBtn label="Close" onClick={onClose} style={{fontSize:24}}>×</IconBtn>
+        <SectionTitle size={22}>{title}</SectionTitle>
+        <IconBtn label="Close" onClick={onClose}><Icon name="close" size={20}/></IconBtn>
       </div>
       {children}
     </div>
@@ -245,6 +257,8 @@ const PhysTags=({phys})=>{
 };
 
 // ── VITALS TILES + TREND SHEET ──────────────────────────────────────────────
+// Abnormal is a red number and a red edge, not a red box; a newly crossed limit flashes solid once
+// and settles. The third line is the change since the last reading, not the old reading.
 const VitalTiles=({vitals,prev,band,onTap,flash,reduced,big})=>{
   const norms=normsFor(band);
   return(<div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
@@ -253,25 +267,32 @@ const VitalTiles=({vitals,prev,band,onTap,flash,reduced,big})=>{
       const cur=numOf(vitals,k),pv=numOf(prev,k);
       const d=!prev||isNaN(cur)||isNaN(pv)?0:cur-pv;
       const thr=k==="Temp"?0.2:1;
-      const arrow=Math.abs(d)>=thr?(d>0?"↑":"↓"):"";
+      const delta=Math.abs(d)>=thr?(d>0?"+":"−")+(k==="Temp"?Math.abs(d).toFixed(1):Math.round(Math.abs(d))):"";
       const flashing=flash&&flash[k]&&!reduced;
       const content=(<>
         <div className="mono" style={{fontSize:12,color:C.faint,letterSpacing:"0.06em"}}>{l}</div>
-        <div className="mono" style={{fontSize:k==="BP"?(big?14:13):(big?17:15),color:bad?C.redText:C.text,fontWeight:500,marginTop:1,whiteSpace:"nowrap"}}>{fmtVital(vitals,k)}</div>
-        {prev&&<div className="mono" style={{fontSize:12,color:arrow?C.dim:C.faint,whiteSpace:"nowrap"}}>{arrow?`${arrow}${k==="BP"?round(pv):k==="Temp"?pv.toFixed(1):round(pv)}`:"·"}</div>}
+        <div className="mono" style={{fontSize:k==="BP"?(big?16:15):(big?20:19),color:bad?C.redText:C.text,fontWeight:500,marginTop:2,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{fmtVital(vitals,k)}</div>
+        {prev&&<div className="mono" style={{fontSize:12,color:delta?C.amber:C.faint,whiteSpace:"nowrap",marginTop:1}}>{delta||"·"}</div>}
       </>);
-      const st={minHeight:big?58:52,padding:"4px 1px",borderRadius:4,border:`1px solid ${bad?C.badBorder:C.border}`,background:bad?"rgba(139,0,0,0.10)":"rgba(245,241,232,0.02)",textAlign:"center",width:"100%"};
+      const st={minHeight:big?64:60,padding:"6px 1px",borderRadius:4,border:`1px solid ${bad?C.red:C.border}`,background:"rgba(245,241,232,0.02)",textAlign:"center",width:"100%"};
       return onTap
-        ?<button key={k+(flashing?flash[k]:"")} className={flashing?"flash-once":bad&&!reduced?"vital-bad":""} onClick={()=>onTap(k)} aria-label={`${l} ${fmtVital(vitals,k)}${bad?", abnormal":""}. Show trend`} style={st}>{content}</button>
-        :<div key={k} className={bad&&!reduced?"vital-bad":""} style={st}>{content}</div>;
+        ?<button key={k+(flashing?flash[k]:"")} className={flashing?"flash-once":""} onClick={()=>onTap(k)} aria-label={`${l} ${fmtVital(vitals,k)}${bad?", abnormal":""}${delta?`, ${delta}`:""}. Show trend`} style={st}>{content}</button>
+        :<div key={k} style={st}>{content}</div>;
     })}
   </div>);
 };
 
+// The curve is the model sampled every 5 simulated minutes, so a 45-minute CT shows the slide,
+// not two dots; the readings he actually saw are listed underneath.
 const TrendSheet=({k,enc,band,onClose})=>{
   const hist=historyOf(enc);const label=(VITALS.find(x=>x.k===k)||{}).l||k;
   const norms=normsFor(band);const[lo,hi]=rangeOf(norms,k==="BP"?"SBP":k);
-  const pts=hist.map(h=>({t:Number(h.t)||0,v:numOf(h.vitals,k),v2:k==="BP"?Number(h.vitals&&h.vitals.DBP):null})).filter(p=>!isNaN(p.v));
+  const pts=useMemo(()=>{
+    const d=DW_();const end=Number(enc&&enc.simMin)||0;const out=[];
+    if(d&&typeof d.vitalsAt==="function"){try{for(let m=0;m<=end;m+=5){const v=d.vitalsAt(enc,m);out.push({t:m,v:numOf(v,k),v2:k==="BP"?Number(v.DBP):null})}if(end%5){const v=d.vitalsAt(enc,end);out.push({t:end,v:numOf(v,k),v2:k==="BP"?Number(v.DBP):null})}}catch{out.length=0}}
+    if(out.length<2)return hist.map(h=>({t:Number(h.t)||0,v:numOf(h.vitals,k),v2:k==="BP"?Number(h.vitals&&h.vitals.DBP):null}));
+    return out;
+  },[enc,k]).filter(p=>!isNaN(p.v));
   const W=340,H=150,P=28;
   const all=pts.flatMap(p=>p.v2!=null&&!isNaN(p.v2)?[p.v,p.v2]:[p.v]).concat([lo,hi].filter(isFinite));
   let mn=Math.min(...all),mx=Math.max(...all);if(mx-mn<4){mx+=2;mn-=2}
@@ -306,33 +327,68 @@ const BUBBLE={
   clinical:{background:C.slateBg,color:"#dfe5ee",border:`1px solid ${C.slateBorder}`},
   obs:{background:C.indigoBg,color:"#cdd2ee",border:`1px solid ${C.indigoBorder}`,borderLeft:`2px solid ${C.indigo}`}
 };
-const LogEntry=({e,name})=>{
-  if(e.k==="time")return<div className="mono bubble" style={{textAlign:"center",fontSize:12,color:C.faint,letterSpacing:"0.06em",padding:"2px 0"}}>{e.t}</div>;
+const LogEntry=({e,name,showLabel=true})=>{
+  if(e.k==="time")return<div className="mono bubble" style={{fontSize:12,color:C.dim,letterSpacing:"0.04em",padding:"8px 0 2px",borderTop:`1px solid ${C.border}`}}>{e.t}</div>;
   if(e.k==="event")return(<div className="bubble" role="status" style={{padding:"8px 12px",background:"rgba(139,0,0,0.22)",border:`1px solid ${C.red}`,borderLeft:`3px solid ${C.red}`,borderRadius:4}}>
-    <Label color={C.redText} style={{letterSpacing:"0.14em"}}>Event{e.atMin!=null?` · T+${e.atMin}`:""}</Label>
-    <div style={{fontSize:14,lineHeight:1.45,marginTop:2}}>{e.t}</div></div>);
+    <Label color={C.redText} style={{letterSpacing:"0.14em"}}>Event</Label>
+    <div style={{fontSize:15,lineHeight:1.45,marginTop:2}}>{e.t}</div></div>);
   const st=BUBBLE[e.k]||BUBBLE.clinical;
   const lbl={doc:"You",patient:name||"Patient",clinical:"Clinical",obs:"You see"}[e.k]||e.k;
   return(<div className="bubble" style={{display:"flex",justifyContent:e.k==="doc"?"flex-end":"flex-start"}}>
-    <div style={{maxWidth:"88%",padding:"7px 11px",borderRadius:4,opacity:e.pending?0.55:1,...st}}>
-      <div className="mono" style={{fontSize:12,textTransform:"uppercase",opacity:0.7,letterSpacing:"0.12em",marginBottom:2}}>{lbl}{e.atMin!=null&&e.k==="doc"?` · T+${e.atMin}`:""}</div>
-      <div style={{fontSize:e.k==="obs"?16:14,lineHeight:1.45,fontFamily:e.mono?MONO:(e.k==="obs"?DISPLAY:SERIF),fontStyle:e.k==="obs"?"italic":"normal",whiteSpace:"pre-wrap"}}>{e.t}</div>
+    <div style={{maxWidth:"94%",padding:"7px 11px",borderRadius:4,opacity:e.pending?0.55:1,...st}}>
+      {showLabel&&<div className="mono" style={{fontSize:12,textTransform:"uppercase",opacity:0.7,letterSpacing:"0.12em",marginBottom:2}}>{lbl}</div>}
+      <div style={{fontSize:e.k==="obs"?16:15,lineHeight:1.45,fontFamily:e.mono?MONO:(e.k==="obs"?DISPLAY:SERIF),whiteSpace:"pre-wrap"}}>{e.t}</div>
     </div>
   </div>);
 };
 
+// The log in segments: each send and everything that came back from it. The clock line leads the
+// segment ("T+38 → T+83 · CT head"), tick rows show the patient during a long wait, and every
+// entry carries its own minute in the gutter, so a troponin back at +15 no longer looks like the
+// CBC that took 45.
+const Row=({t,children})=><div style={{display:"grid",gridTemplateColumns:"46px 1fr",gap:6,alignItems:"start"}}><span className="mono" style={{fontSize:12,color:C.faint,paddingTop:9,whiteSpace:"nowrap"}}>{t!=null?`T+${t}`:""}</span><div style={{minWidth:0}}>{children}</div></div>;
+const TickRow=({m,vitals,norms})=>{
+  const cell=(k,label)=>{const bad=isAbn(vitals,k,norms);return<span key={k} style={{color:bad?C.redText:C.dim}}>{label} {fmtVital(vitals,k)}</span>};
+  return<Row t={m}><div className="mono" style={{fontSize:12,padding:"6px 0 2px",borderTop:`1px dashed ${C.border}`,display:"flex",gap:10,flexWrap:"wrap"}}>{cell("HR","HR")}{cell("BP","BP")}{cell("SpO2","SpO₂")}{cell("RR","RR")}{cell("GCS","GCS")}</div></Row>;
+};
+const buildSegments=log=>{
+  const segs=[];let cur=null;
+  (log||[]).forEach(e=>{
+    if(e.k==="doc"||!cur){cur={doc:e.k==="doc"?e:null,items:e.k==="doc"?[]:[e],time:null};segs.push(cur);return}
+    if(e.k==="time")cur.time=e;else cur.items.push(e);
+  });
+  segs.forEach(s=>{s.items=s.items.map((e,i)=>({e,i})).sort((a,b)=>((a.e.atMin??0)-(b.e.atMin??0))||(a.i-b.i)).map(x=>x.e)});
+  return segs;
+};
+const LogView=({log,enc,name,band})=>{
+  const norms=normsFor(band);
+  const segs=useMemo(()=>buildSegments(log),[log]);
+  const out=[];
+  segs.forEach((s,si)=>{
+    if(s.doc)out.push(<Row key={`d${si}`} t={s.doc.atMin}><LogEntry e={s.doc} name={name}/></Row>);
+    const t=s.time;
+    if(t&&t.from!=null){
+      const label=String(t.t).split(" — ")[1]||t.t;
+      out.push(<Row key={`t${si}`}><div className="mono" style={{fontSize:12,color:C.dim,letterSpacing:"0.04em",padding:"8px 0 2px",borderTop:`1px solid ${C.border}`}}>T+{t.from} → T+{t.atMin} · {label}</div></Row>);
+      if(enc&&t.atMin-t.from>=15){for(let m=t.from+15;m<t.atMin;m+=15){let v=null;try{v=DW_().vitalsAt(enc,m)}catch{}if(v)out.push(<TickRow key={`k${si}-${m}`} m={m} vitals={v} norms={norms}/>)}}
+    }
+    let last=null;
+    s.items.forEach((e,i)=>{out.push(<Row key={`e${si}-${i}`} t={e.k==="obs"&&!e.atMin?null:e.atMin}><LogEntry e={e} name={name} showLabel={e.k!==last}/></Row>);last=e.k});
+    if(t&&t.from==null)out.push(<Row key={`t${si}`}><LogEntry e={t}/></Row>);
+  });
+  return out;
+};
+
 // ── LANDING (v2 copy) ───────────────────────────────────────────────────────
 const VitalsStrip=({onSettings})=>{
-  const [hr,setHr]=useState(72);const reduced=useReducedMotion();
-  useEffect(()=>{if(reduced)return;const i=setInterval(()=>setHr(70+Math.floor(Math.random()*5)),1100);return()=>clearInterval(i)},[reduced]);
   const d=new Date();const stamp=`${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.${d.getFullYear()}`;
   return(<div className="mono" style={{position:"sticky",top:0,zIndex:30,height:44,background:"#000",borderBottom:`1px solid ${C.redDim}`,display:"flex",alignItems:"center",padding:"0 6px 0 14px",gap:14,fontSize:12,letterSpacing:"0.05em"}}>
     <span style={{color:C.redText,display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:C.red,animation:"pulse-dot 1.1s infinite"}}/>LIVE</span>
-    <span style={{color:C.dim}}>HR <span style={{color:C.text,animation:"hr-flicker 1.1s infinite",display:"inline-block",minWidth:18}}>{hr}</span></span>
+    <span style={{color:C.dim}}>HR <span style={{color:C.text}}>72</span></span>
     <span style={{color:C.dim}}>BP <span style={{color:C.text}}>118/76</span></span>
     <span style={{color:C.dim}}>SpO₂ <span style={{color:C.text}}>98</span></span>
     <span style={{marginLeft:"auto",color:C.faint}}>{stamp}</span>
-    {onSettings&&<IconBtn label="Settings" onClick={onSettings} style={{fontSize:16,color:C.faint}}>⚙</IconBtn>}
+    {onSettings&&<IconBtn label="Settings" onClick={onSettings} style={{color:C.faint}}><Icon name="settings"/></IconBtn>}
   </div>);
 };
 const EKGTrace=()=>{
@@ -438,6 +494,8 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
   const stats=useMemo(safeStats,[refresh,settings]);
   const active=useMemo(()=>{try{return DW_().loadActive()}catch{return null}},[refresh]);
   useEffect(()=>{let live=true;if(!ready&&prefetchPromise)prefetchPromise.then(()=>{if(live)setReady(prefetchReady())});return()=>{live=false}},[ready]);
+  // Cold start: write the next case while he reads his stats, so the first tap of the session is not a minute's wait.
+  useEffect(()=>{let live=true;if(!ready&&!active){startPrefetch(settings.mode==="drill"?"drill":"shift");if(prefetchPromise)prefetchPromise.then(()=>{if(live)setReady(prefetchReady())})}return()=>{live=false}},[]);
   const mode=settings.mode==="drill"?"drill":"shift";
   const setMode=m=>{setSettings({mode:m});setS(getSettings())};
   const hist=(stats.history||[]).slice().reverse();
@@ -448,8 +506,8 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
   const ap=active&&persona(active);
   return(<div style={{minHeight:"100dvh",padding:"0 16px calc(32px + env(safe-area-inset-bottom))",maxWidth:560,margin:"0 auto"}}>
     <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
-      <div style={{fontSize:22,fontWeight:700,letterSpacing:"-0.03em"}}>The <span className="display" style={{fontWeight:400}}>Doorway.</span></div>
-      <IconBtn label="Settings" onClick={onSettings}>⚙</IconBtn>
+      <div style={{fontSize:22,fontWeight:700,letterSpacing:"-0.03em"}}>The <span className="display-i" style={{fontWeight:400}}>Doorway.</span></div>
+      <IconBtn label="Settings" onClick={onSettings}><Icon name="settings"/></IconBtn>
     </header>
     {active&&<button onClick={()=>onResume(active)} style={{width:"100%",textAlign:"left",marginBottom:12,padding:"12px 14px",minHeight:56,background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:4}}>
       <Label color={C.amber}>Patient in progress · T+{active.simMin||0} min</Label>
@@ -465,22 +523,22 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
     </div>
     {tip&&<div style={{marginTop:12}}><Card accent={C.amber} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
       <div style={{flex:1,fontSize:14,lineHeight:1.5,color:C.dim}}>Your history lives only in this browser. Add The Doorway to your Home Screen, and export your data now and then from Settings — Safari can clear site data it thinks you've abandoned.</div>
-      <IconBtn label="Dismiss tip" onClick={()=>{lsSet("dw_ui_tip_done","1");setTip(false)}} style={{fontSize:22}}>×</IconBtn>
+      <IconBtn label="Dismiss tip" onClick={()=>{lsSet("dw_ui_tip_done","1");setTip(false)}}><Icon name="close" size={20}/></IconBtn>
     </Card></div>}
     {pending>0&&<div className="mono" style={{marginTop:12,fontSize:12,color:due?C.amber:C.dim}}>{due?`${due} pattern${due===1?"":"s"} due for re-exposure`:`${pending} pattern${pending===1?"":"s"} queued for re-exposure`}</div>}
 
-    <Label style={{marginTop:28,marginBottom:10}}>Weak spots</Label>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Weak spots</SectionTitle>
     {weak.length?<div style={{display:"grid",gap:6}}>{weak.map(([d,v])=><div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4}}>
       <span style={{fontSize:15}}>{d}</span><span className="mono" style={{fontSize:12,color:C.dim}}>avg <span style={{color:v.avg<60?C.redText:C.text}}>{Math.round(v.avg)}</span> · n={v.n}</span></div>)}</div>
     :<div style={{fontSize:14,color:C.faint}}>Not enough cases yet — a domain needs three before it counts.</div>}
 
-    <Label style={{marginTop:28,marginBottom:10}}>Acuity calibration · your call vs truth</Label>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Acuity calibration <span style={{fontWeight:400,color:C.dim}}>· your call vs truth</span></SectionTitle>
     <Card><AcuityGrid grid={stats.acuityGrid}/></Card>
 
-    <Label style={{marginTop:28,marginBottom:10}}>Gut vs final</Label>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Gut vs final</SectionTitle>
     <GutVsFinal g={stats.gutVsFinal}/>
 
-    <Label style={{marginTop:28,marginBottom:10}}>Recent cases{stats.cases?` · ${stats.cases} total`:""}</Label>
+    <SectionTitle style={{marginTop:28,marginBottom:10}}>Recent cases{stats.cases?<span style={{fontWeight:400,color:C.dim}}> · {stats.cases} total</span>:null}</SectionTitle>
     {hist.length?<div style={{display:"grid",gap:4}}>{hist.slice(0,10).map((h,i)=><button key={h.caseId||i} onClick={()=>onOpenHistory(h)} style={{display:"flex",alignItems:"center",gap:10,minHeight:52,padding:"8px 12px",textAlign:"left",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4}}>
       <span aria-label={h.caught?"caught":"missed"} style={{width:8,height:8,borderRadius:4,flexShrink:0,background:h.caught?C.good:C.red}}/>
       <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.dx||"Case"}</span>
@@ -529,7 +587,7 @@ const SettingsSheet=({onClose,onAbout,onChanged})=>{
 // ── LOADING ─────────────────────────────────────────────────────────────────
 const Loading=({cond,error,onRetry,onHome,onSettings})=>(
   <div style={{minHeight:"100dvh",display:"flex",flexDirection:"column",padding:"0 16px",maxWidth:560,margin:"0 auto"}}>
-    <header style={{height:56,display:"flex",alignItems:"center"}}><IconBtn label="Home" onClick={onHome}>←</IconBtn></header>
+    <header style={{height:56,display:"flex",alignItems:"center"}}><IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn></header>
     <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:18,paddingBottom:80}}>
       {cond?<ConditionsStrip cond={cond}/>:<div className="mono" style={{fontSize:12,color:C.faint,letterSpacing:"0.06em"}}>Rolling tonight's conditions…</div>}
       {!error&&<div className="display pulse-slow" role="status" aria-live="polite" style={{fontSize:40,lineHeight:1.1}}>Patient arriving…</div>}
@@ -564,7 +622,7 @@ const Doorway=({enc,onLock,onHome})=>{
   // Fits 390×844 without scrolling: figure beside name/CC; the read controls sit above a solid lock bar.
   return(<div className="case-fade" style={{minHeight:"100dvh",maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column"}}>
     <header style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 4px",borderBottom:`1px solid ${C.border}`}}>
-      <IconBtn label="Home" onClick={onHome}>←</IconBtn>
+      <IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn>
       <div style={{flex:1,minWidth:0}}><ConditionsStrip cond={seed.conditions}/></div>
     </header>
     <div style={{flex:1,padding:"10px 16px 12px",display:"flex",flexDirection:"column",gap:10}}>
@@ -617,17 +675,17 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
   const submit=()=>onSubmit({ddx:ddx.map(s=>s.trim()).filter(Boolean),confidence:conf,finalDispo:dispo,transferChecklist:isT?tc:null});
   return(<Sheet title="Commit" onClose={busy?()=>{}:onClose} maxH="94dvh">
     <datalist id="dw-dx">{names.map(n=><option key={n} value={n}/>)}</datalist>
-    <Label style={{marginBottom:8}}>Differential, most likely first</Label>
+    <SectionTitle size={16} style={{marginBottom:8}}>Differential, most likely first</SectionTitle>
     {ddx.map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
       <span className="mono" style={{fontSize:13,color:i?C.faint:C.amber,width:22}}>#{i+1}</span>
       <input list="dw-dx" value={d} onChange={e=>{const n=ddx.slice();n[i]=e.target.value;setDdx(n)}} placeholder={i?"optional":"required"} aria-label={`Diagnosis ${i+1}`}
         style={{flex:1,minHeight:44,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:16,color:C.text,outline:"none"}}/></div>)}
     <div className="mono" style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.faint,letterSpacing:"0.14em",textTransform:"uppercase",marginTop:12}}><span>Confidence in #1</span><span style={{color:C.text}}>{conf}%</span></div>
     <input type="range" min="0" max="100" step="5" value={conf} onChange={e=>setConf(Number(e.target.value))} aria-label="Confidence in diagnosis 1"/>
-    <Label style={{margin:"8px 0"}}>Final disposition</Label>
+    <SectionTitle size={16} style={{margin:"10px 0 8px"}}>Final disposition</SectionTitle>
     <Choice label="Final disposition" cols={2} value={dispo} onChange={setDispo} options={dispos.map(d=>({v:d,label:d}))}/>
     {isT&&<div style={{marginTop:14}}>
-      <Label style={{marginBottom:4}}>Packaged for transport?</Label>
+      <SectionTitle size={16} style={{marginBottom:4}}>Packaged for transport?</SectionTitle>
       {TC.map(([k,l])=><Toggle key={k} on={tc[k]} onChange={v=>setTc({...tc,[k]:v})} label={l}/>)}
     </div>}
     <ErrorBox error={error} onRetry={ok?submit:null} style={{marginTop:12}}/>
@@ -637,8 +695,15 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
 };
 
 // Stabilize and Transfer first: the groups that matter most in a crashing patient are never off-screen.
-const GROUP_ORDER=["Stabilize","Transfer","History","Exam","Labs","Imaging","Procedures"];
+const GROUP_ORDER=["Stabilize","Transfer","Time","History","Exam","Labs","Imaging","Procedures"];
 const lastSpoken=entries=>{for(let i=entries.length-1;i>=0;i--){const e=entries[i];if(e&&e.k!=="time"&&e.k!=="doc")return(e.k==="event"?"Event: ":"")+e.t}return""};
+const chipCostOf=(g,l)=>{try{const d=DW_();return d&&typeof d.chipCost==="function"?Number(d.chipCost(g,l))||0:0}catch{return 0}};
+// The header clock rolls from the old minute to the new one over 600 ms, so the jump is seen when it happens.
+const useCountUp=(value,ms,reduced)=>{const [v,setV]=useState(value);const from=useRef(value);
+  useEffect(()=>{const a=from.current,b=value;if(reduced||ms<=0||a===b){setV(b);from.current=b;return}const t0=performance.now();let raf;
+    const step=now=>{const f=Math.min(1,(now-t0)/ms);setV(Math.round(a+(b-a)*f));if(f<1)raf=requestAnimationFrame(step);else from.current=b};
+    raf=requestAnimationFrame(step);return()=>cancelAnimationFrame(raf)},[value,ms,reduced]);
+  return v};
 
 const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const reduced=useReducedMotion();
@@ -649,9 +714,10 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const [busy,setBusy]=useState(false);const [err,setErr]=useState(null);const [lastPayload,setLastPayload]=useState(null);
   const [pending,setPending]=useState(null);const [banner,setBanner]=useState(null);const [flash,setFlash]=useState({});
   const [trend,setTrend]=useState(null);const [commit,setCommit]=useState(false);const [gBusy,setGBusy]=useState(false);const [gErr,setGErr]=useState(null);
-  const [listening,setListening]=useState(false);const recog=useRef(null);
+  const [listening,setListening]=useState(false);const recog=useRef(null);const [interim,setInterim]=useState("");
   const [saveFail,setSaveFail]=useState(!!saveWarn);const [announce,setAnnounce]=useState("");
   const logRef=useRef(null);
+  const shownMin=useCountUp(enc.simMin||0,600,reduced);
   // Stale-reply guard: a reply that lands after he left this screen (or this case) is dropped.
   const live=useRef(true);useEffect(()=>{live.current=true;return()=>{live.current=false}},[]);
   const caseId=seed.caseId;
@@ -666,7 +732,7 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const send=async payload=>{
     payload=payload||{text:text.trim(),chips:tray};
     if(busy||(!payload.text&&!(payload.chips&&payload.chips.length)))return;
-    setBusy(true);setErr(null);setLastPayload(payload);
+    setBusy(true);setErr(null);setLastPayload(payload);setBanner(null);
     setPending([payload.text,...payload.chips.map(x=>x.label)].filter(Boolean).join(" · "));
     setText("");setTray([]);setTab(null);haptic(10);
     try{
@@ -678,7 +744,8 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
         setSaveFail(!!r.saveFailed);
         setAnnounce(lastSpoken(r.entries||[]));
         const evs=r.events||[];
-        if(evs.length){const nv=vitalsNow(r.enc);setBanner(evs.map(e=>eventText(e,nv)).join(" · "));haptic([40,60,40]);
+        if(evs.length){const nv=vitalsNow(r.enc);const first=evs.find(e=>e.kind==="deteriorating")||evs[0];
+          setBanner({text:eventText(first,nv),more:evs.length-1,at:first.atMin});haptic([40,60,40]);
           const f={};evs.forEach(e=>{if(e.vital)f[tileKeyFor(e.vital)]=Date.now()});setFlash(f)}
       }
     }catch(e){if(!live.current)return;setErr(errMsg(e));setText(payload.text||"");setTray(payload.chips||[])}
@@ -688,9 +755,10 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
     if(listening){try{recog.current&&recog.current.stop()}catch{}return}
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){setErr("Voice input isn't supported in this browser.");return}
-    try{const r=new SR();r.lang="en-US";r.interimResults=false;
-      r.onresult=e=>{const t=e.results[0][0].transcript;setText(x=>(x?x+" ":"")+t)};
-      r.onerror=()=>setListening(false);r.onend=()=>setListening(false);
+    try{const r=new SR();r.lang="en-US";r.interimResults=true;
+      r.onresult=e=>{let fin="",tmp="";for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];if(res.isFinal)fin+=res[0].transcript;else tmp+=res[0].transcript}
+        if(fin.trim())setText(x=>(x?x+" ":"")+fin.trim());setInterim(tmp)};
+      r.onerror=()=>{setListening(false);setInterim("")};r.onend=()=>{setListening(false);setInterim("")};
       r.start();recog.current=r;setListening(true);haptic(15)}catch(e){setErr(errMsg(e))}
   };
   const grade=async answers=>{
@@ -702,34 +770,36 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
   const tr=enc.transport;
   const eta=tr&&tr.etaMin!=null?Math.round(tr.etaMin-(enc.simMin||0)):null;
   const n=tray.length;
+  const batchCost=tray.reduce((m,x)=>Math.max(m,chipCostOf(x.group,x.label)),0);
   return(<div style={{height:"100dvh",display:"flex",flexDirection:"column",maxWidth:560,margin:"0 auto",overflow:"hidden"}}>
     <header style={{flexShrink:0,background:C.bg,borderBottom:`1px solid ${C.border}`,padding:"0 8px 8px"}}>
       <div style={{display:"flex",alignItems:"center",gap:6,height:52}}>
-        <IconBtn label="Home" onClick={onHome}>←</IconBtn>
+        <IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn>
         <div style={{width:36,height:42,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`,flexShrink:0}}><Avatar phys={{...(c.physicality||{}),...(enc.physicality||{}),age:p.age}} still/></div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"baseline",gap:8}}><span className="mono" style={{fontSize:17,fontWeight:700}}>T+{enc.simMin||0}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
-            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap"}}>{tr.mode==="flight"?"✈":"🚑"} {eta!=null?(eta>0?`ETA ${eta}m`:"on scene"):(tr.status||"")}</span>}</div>
-          <div className="mono" style={{fontSize:12,color:C.dim,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} aria-label="Locked gut">
-            🔒 {gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}><span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>T+{shownMin}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
+            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap"}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"on scene"):(tr.status||"")}</span>}</div>
+          <div className="mono" style={{fontSize:12,color:C.dim,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:5}} aria-label="Locked gut">
+            <Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></div>
         </div>
         <Btn kind="line" onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 12px",borderColor:C.red}}>Commit</Btn>
       </div>
       <div style={{padding:"0 4px 6px"}}><ConditionsStrip cond={seed.conditions} compact/></div>
       <VitalTiles vitals={vitals} prev={prev} band={seed.ageBand} onTap={setTrend} flash={flash} reduced={reduced}/>
-      {banner&&<div role="alert" className="banner-in" style={{marginTop:6}}>
-        <button onClick={()=>setBanner(null)} aria-label={`${banner}. Dismiss`} style={{width:"100%",minHeight:44,padding:"8px 12px",background:C.red,color:C.text,borderRadius:4,textAlign:"left",fontFamily:MONO,fontSize:14,fontWeight:700,letterSpacing:"0.02em",display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{flex:1}}>⚠ {banner}</span><span aria-hidden style={{fontSize:12,fontWeight:400,opacity:0.8}}>tap to clear</span></button>
-      </div>}
       {saveFail&&<div role="status" style={{marginTop:6,padding:"8px 12px",fontSize:14,lineHeight:1.4,background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:4,display:"flex",alignItems:"center",gap:8}}>
         <span style={{flex:1}}>Couldn't save — export your data.</span>
         <Btn kind="ghost" onClick={onSettings} style={{color:C.amber,minHeight:44,padding:"0 6px"}}>Export →</Btn></div>}
     </header>
 
     <div style={{position:"relative",flex:1,minHeight:0}}>
-      <div ref={logRef} style={{height:"100%",overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:7}}>
-        {log.map((e,i)=><LogEntry key={i} e={e} name={(p.name||"").split(" ")[0]}/>)}
-        {pending&&<LogEntry e={{k:"doc",t:pending,pending:true}}/>}
+      {banner&&<div role="alert" className="banner-in" style={{position:"absolute",top:8,left:12,right:12,zIndex:5,display:"flex",alignItems:"center",gap:8,padding:"6px 4px 6px 12px",background:C.red,color:C.text,borderRadius:4,boxShadow:"0 10px 28px rgba(0,0,0,0.55)"}}>
+        <Icon name="warn" size={16}/>
+        <span style={{flex:1,fontSize:15,lineHeight:1.35}}>{banner.text}<span className="mono" style={{fontSize:12,opacity:0.8}}>{banner.at!=null?` · T+${banner.at}`:""}{banner.more>0?` · +${banner.more} more in log`:""}</span></span>
+        <IconBtn label="Dismiss alert" onClick={()=>setBanner(null)} style={{color:C.text,minWidth:40,minHeight:40}}><Icon name="close" size={18}/></IconBtn>
+      </div>}
+      <div ref={logRef} style={{height:"100%",overflowY:"auto",padding:"10px 12px 10px 8px",display:"flex",flexDirection:"column",gap:7}}>
+        <LogView log={log} enc={enc} name={(p.name||"").split(" ")[0]} band={seed.ageBand}/>
+        {pending&&<Row><LogEntry e={{k:"doc",t:pending,pending:true}}/></Row>}
         {busy&&<div className="display pulse-slow" style={{color:C.faint,fontSize:15}}>…</div>}
         <ErrorBox error={err} onRetry={lastPayload?()=>send(lastPayload):null} onSettings={onSettings}/>
       </div>
@@ -738,8 +808,8 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
 
     <div style={{flexShrink:0,borderTop:`1px solid ${C.border}`,background:C.bg,paddingBottom:"env(safe-area-inset-bottom)"}}>
       {tab&&chipsAll[tab]&&<div id="dw-chip-panel" role="group" aria-label={`${tab} options`} style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 2px",maxHeight:156,overflowY:"auto"}}>
-        {chipsAll[tab].map(l=>{const on=tray.some(x=>x.group===tab&&x.label===l);return(
-          <button key={l} className="chip" aria-pressed={on} onClick={()=>toggleChip(tab,l)} style={{minHeight:44,padding:"0 14px",borderRadius:22,fontSize:14,background:on?C.red:C.bg3,color:C.text,border:`1px solid ${on?C.red:C.border}`}}>{l}</button>)})}
+        {chipsAll[tab].map(l=>{const on=tray.some(x=>x.group===tab&&x.label===l);const cost=chipCostOf(tab,l);return(
+          <button key={l} className="chip" aria-label={l} aria-pressed={on} onClick={()=>toggleChip(tab,l)} style={{minHeight:44,padding:"0 14px",borderRadius:22,fontSize:14,background:on?C.red:C.bg3,color:C.text,border:`1px solid ${on?C.red:C.border}`,display:"inline-flex",alignItems:"center"}}>{l}{cost>0&&<span className="mono" aria-hidden style={{fontSize:12,color:on?"rgba(245,241,232,0.85)":C.faint,marginLeft:7}}>+{cost}</span>}</button>)})}
       </div>}
       <div aria-label="Order groups" style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 8px 0"}}>
         {groups.map(g=>{const on=tab===g;const cnt=tray.filter(x=>x.group===g).length;return(
@@ -748,11 +818,12 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
       {n>0&&<div className="scrollx" aria-label="Selected orders" style={{display:"flex",gap:6,overflowX:"auto",padding:"8px 8px 0"}}>
         {tray.map(x=><button key={x.group+x.label} onClick={()=>toggleChip(x.group,x.label)} aria-label={`Remove ${x.label}`} style={{flexShrink:0,minHeight:44,padding:"0 12px",borderRadius:4,fontSize:13,background:C.docBg,color:C.doc,border:`1px solid ${C.docBorder}`}}>{x.label} <span aria-hidden style={{opacity:0.7}}>×</span></button>)}
       </div>}
+      {listening&&<div className="mono" role="status" style={{fontSize:12,color:C.faint,padding:"6px 8px 0"}}>{interim||"Listening…"}</div>}
       <div style={{display:"flex",gap:6,padding:8}}>
-        <IconBtn label={listening?"Stop dictation":"Dictate"} onClick={voice} style={{border:`1px solid ${listening?C.red:C.border}`,background:listening?C.red:C.bg3,color:C.text,width:48}}>🎤</IconBtn>
-        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send()}} placeholder="ask · examine · order · stabilize" aria-label="Free text order or question"
+        <IconBtn label={listening?"Stop dictation":"Dictate"} onClick={voice} style={{border:`1px solid ${listening?C.red:C.border}`,background:listening?C.red:C.bg3,color:C.text,width:48}}><Icon name="mic"/></IconBtn>
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send()}} placeholder="Type an order or a question" enterKeyHint="send" aria-label="Free text order or question"
           style={{flex:1,minWidth:0,minHeight:48,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"0 12px",fontSize:16,color:C.text,outline:"none"}}/>
-        <Btn kind="primary" onClick={()=>send()} disabled={busy||(!text.trim()&&!n)} style={{minHeight:48,padding:"0 14px"}} aria-label={n?`Send ${n} orders`:"Send"}>{busy?"…":n?`Send ${n}`:"Send"}</Btn>
+        <Btn kind="primary" onClick={()=>send()} disabled={busy||(!text.trim()&&!n)} style={{minHeight:48,padding:"0 14px",whiteSpace:"nowrap"}} aria-label={n?`Send ${n} orders`:"Send"}>{busy?"…":n?`Send ${n}${batchCost?` · +${batchCost}`:""}`:"Send"}</Btn>
       </div>
     </div>
     {trend&&<TrendSheet k={trend} enc={enc} band={seed.ageBand} onClose={()=>setTrend(null)}/>}
@@ -833,14 +904,13 @@ const Debrief=({data,onNext,onHome})=>{
   const said=line=>{const w=String(line).toLowerCase().replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(x=>x.length>3);if(!w.length)return false;return w.filter(x=>tlText.includes(x)).length/w.length>=0.7};
   const wins=full?(grade.wins||[]).filter(x=>!said(x)):[],misses=full?(grade.misses||[]).filter(x=>!said(x)):[];
   return(<div className="case-fade" style={{minHeight:"100dvh",maxWidth:560,margin:"0 auto",padding:"0 16px calc(24px + env(safe-area-inset-bottom))"}}>
-    <header style={{display:"flex",alignItems:"center",height:56,gap:6}}><IconBtn label="Home" onClick={onHome}>←</IconBtn><Label color={C.redText}>{ro?"Past case":"Debrief"}</Label></header>
-    <div style={{fontSize:13,color:C.dim}}>True diagnosis</div>
+    <header style={{display:"flex",alignItems:"center",height:56,gap:6}}><IconBtn label="Home" onClick={onHome}><Icon name="back"/></IconBtn><SectionTitle size={22}>{ro?"Past case":"Debrief"}</SectionTitle></header>
     <div className="display" style={{fontSize:30,lineHeight:1.15,color:C.amber,margin:"2px 0 14px"}}>{d.trueDx||"—"}</div>
     {full&&grade.criticalError&&<Card accent={C.red} style={{marginBottom:12,background:C.badBg}}><Label color={C.redText}>Critical error</Label><div style={{fontSize:15,marginTop:4,lineHeight:1.5}}>{grade.criticalError}</div></Card>}
     <Pairs d={d}/>
 
     {full&&<>
-      <Label style={{margin:"24px 0 4px"}}>Timeline</Label>
+      <SectionTitle style={{margin:"24px 0 4px"}}>Timeline</SectionTitle>
       <div style={{fontSize:14,color:C.dim,padding:"6px 0 8px"}}>T+0 · gut locked: {d.gutSick==null?"—":d.gutSick?"sick":"not sick"}, acuity {d.gutAcuity??"—"}, {d.gutDispo||"—"}{d.timedOut?" (timed out)":""}</div>
       {timeline.length?timeline.map((it,i)=><TimelineItem key={i} it={it}/>):<div style={{fontSize:14,color:C.faint}}>No orders recorded.</div>}
     </>}
@@ -850,7 +920,7 @@ const Debrief=({data,onNext,onHome})=>{
     </Card>}
 
     {full&&grade.carryForward&&<div style={{marginTop:22,padding:"16px 16px",background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderLeft:`3px solid ${C.amber}`,borderRadius:4}}>
-      <Label color={C.amber}>Carry forward</Label>
+      <SectionTitle size={16} color={C.amber}>Carry forward</SectionTitle>
       <div className="display" style={{fontSize:22,lineHeight:1.3,marginTop:6}}>{grade.carryForward}</div>
     </div>}
     {full&&(grade.teachingPoint||ak.teachingPoint||ak.ruralTwist)&&<div style={{marginTop:12,fontSize:15,lineHeight:1.6,color:C.dim}}>
@@ -859,7 +929,7 @@ const Debrief=({data,onNext,onHome})=>{
     </div>}
 
     {needReflect&&!(ro&&!refl)&&<div style={{marginTop:22}}>
-      <Label style={{marginBottom:6}}>Reflection · optional</Label>
+      <SectionTitle size={16} style={{marginBottom:6}}>Reflection <span style={{fontWeight:400,color:C.dim}}>· optional</span></SectionTitle>
       <div style={{fontSize:14,color:C.dim,lineHeight:1.5,marginBottom:8}}>What supported your diagnosis, what argued against it, what else explains it?</div>
       <textarea value={refl} onChange={e=>setRefl(e.target.value)} rows={4} aria-label="Reflection" readOnly={ro} style={{width:"100%",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:10,fontSize:16,color:C.text,outline:"none",resize:"vertical",lineHeight:1.5}}/>
       {!ro&&<div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><Btn kind="line" onClick={saveRefl} disabled={!refl.trim()}>Save reflection</Btn>{reflMsg&&<span className="mono" role="status" style={{fontSize:12,color:C.amber}}>{reflMsg}</span>}</div>}
