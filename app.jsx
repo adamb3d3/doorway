@@ -551,7 +551,7 @@ const Home=({onNext,onResume,onSettings,onOpenHistory,refresh})=>{
       <Label color={C.amber}>Patient in progress · T+{active.simMin||0} min</Label>
       <div style={{fontSize:15,marginTop:4}}>{ap.name||"Patient"}{ap.age!=null?`, ${ap.age}${ap.sex||""}`:""} — {ap.chiefComplaint||"resume"} <span style={{color:C.amber}}>→</span></div>
     </button>}
-    <button onClick={()=>onNext(mode)} style={{width:"100%",minHeight:84,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",background:C.text,color:C.bg,borderRadius:4}}>
+    <button onClick={()=>onNext(mode)} aria-label={`Next patient${ready?", ready":""}`} style={{width:"100%",minHeight:84,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",background:C.text,color:C.bg,borderRadius:4}}>
       <span style={{textAlign:"left"}}><span className="mono" style={{display:"block",fontSize:14,letterSpacing:"0.16em",textTransform:"uppercase",fontWeight:600}}>Next patient</span>
         <span className="mono" style={{display:"flex",alignItems:"center",gap:6,fontSize:12,marginTop:6,color:"rgba(10,10,10,0.7)"}}><span aria-hidden style={{width:7,height:7,borderRadius:4,background:ready?C.good:"rgba(10,10,10,0.3)"}}/>{ready?"ready":"generates on tap"}</span></span>
       <span style={{fontSize:22}} aria-hidden>→</span>
@@ -725,11 +725,10 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
   const TC=[["airway","Airway secured or deliberately not needed"],["access","Two lines / IO"],["blood","Blood hanging or ready"],["pressors","Pressors titrated and stable"],["sedation","Sedation and analgesia running"],["receivingCall","Receiving facility accepted"]];
   const submit=()=>onSubmit({ddx:ddx.map(s=>s.trim()).filter(Boolean),confidence:conf,finalDispo:dispo,transferChecklist:isT?tc:null});
   return(<Sheet title="Commit" onClose={busy?()=>{}:onClose} maxH="94dvh">
-    <datalist id="dw-dx">{names.map(n=><option key={n} value={n}/>)}</datalist>
     <SectionTitle size={16} style={{marginBottom:8}}>Differential, most likely first</SectionTitle>
     {ddx.map((d,i)=><div key={i} style={{marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:8}}>
       <span className="mono" style={{fontSize:13,color:i?C.faint:C.amber,width:22}}>#{i+1}</span>
-      <input list="dw-dx" value={d} onChange={e=>{const n=ddx.slice();n[i]=e.target.value;setDdx(n)}} onFocus={()=>setFocus(i)} onBlur={()=>setTimeout(()=>setFocus(f=>f===i?null:f),150)} placeholder={i?"optional":"required"} aria-label={`Diagnosis ${i+1}`} autoComplete="off"
+      <input value={d} onChange={e=>{const n=ddx.slice();n[i]=e.target.value;setDdx(n)}} onFocus={()=>setFocus(i)} onBlur={()=>setTimeout(()=>setFocus(f=>f===i?null:f),150)} placeholder={i?"optional":"required"} aria-label={`Diagnosis ${i+1}`} autoComplete="off"
         style={{flex:1,minHeight:44,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:16,color:C.text,outline:"none"}}/></div>
       {suggest(i).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 0 2px 30px"}}>{suggest(i).map(n=><button key={n} onMouseDown={e=>e.preventDefault()} onClick={()=>{const x=ddx.slice();x[i]=n;setDdx(x);setFocus(null)}} style={{minHeight:40,padding:"0 12px",borderRadius:4,fontSize:14,background:C.bg3,color:C.text,border:`1px solid ${C.border}`}}>{n}</button>)}</div>}
     </div>)}
@@ -835,13 +834,13 @@ const Workup=({enc,setEnc,onHome,onGraded,onSettings,saveWarn})=>{
         <button onClick={()=>setWho(true)} aria-label={`About ${p.name||"the patient"}`} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:34,height:40,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`}}><Avatar phys={physNow} still/></div></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8,minWidth:0}}>
-            <span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>T+{shownMin}<span style={{fontSize:12,color:C.faint,fontWeight:400}}> min</span></span>
-            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"at bedside"):(tr.status||"")}</span>}
-            <span className="mono" style={{marginLeft:"auto",fontSize:12,color:C.dim,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4,flexShrink:0}} aria-label="Locked gut"><Icon name="lock" size={12}/><span>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></span>
+            <span className="mono" style={{fontSize:17,fontWeight:700,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}} aria-label={`T plus ${shownMin} minutes`}>T+{shownMin}</span>
+            {tr&&<span className="mono" style={{fontSize:12,color:tr.status==="declined"?C.redText:C.amber,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0,flexShrink:1}}>{tr.mode==="flight"?"Flight":"Ground"} {eta!=null?(eta>0?`ETA ${eta}m`:"at bedside"):(tr.status||"")}</span>}
+            <span className="mono" style={{marginLeft:"auto",fontSize:12,color:C.dim,display:"inline-flex",alignItems:"center",gap:4,minWidth:0,flexShrink:1}} aria-label="Locked gut"><Icon name="lock" size={12}/><span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{gut.timedOut?"timed out · ":""}{gut.sick==null?"—":gut.sick?"Sick":"Not sick"} · {gut.acuity?`ESI ${gut.acuity}`:"ESI —"} · {gut.gutDispo||"—"}</span></span>
           </div>
           <div className="mono" style={{fontSize:12,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name||"Patient"}{ageLine?` · ${ageLine}`:""}{p.chiefComplaint?` · ${p.chiefComplaint}`:""}</div>
         </div>
-        <Btn kind={crewHere?"lock":"line"} onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 12px"}}>Commit</Btn>
+        <Btn kind={crewHere?"lock":"line"} onClick={()=>setCommit(true)} disabled={busy} style={{padding:"0 10px",fontSize:12,flexShrink:0}}>Commit</Btn>
       </div>
       <div style={{padding:"0 4px 6px"}}><ConditionsStrip cond={seed.conditions} compact/></div>
       <VitalTiles vitals={vitals} prev={prev} band={seed.ageBand} onTap={setTrend} flash={flash} reduced={reduced}/>
