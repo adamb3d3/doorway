@@ -559,6 +559,18 @@ test("transfer chips count as the intervention the case tied to them", async fun
   assert.strictEqual(calls.length, 0);
 });
 
+test("the grader sees the case reviewer's reservations when a review ran", async function () {
+  reset();
+  var c = makeCase({ seed: 305, conditions: cond() });
+  c.review = { first: { ok: true, issues: [{ field: "answerKey.criticalActions[2]", problem: "A fixed 30 mL/kg bolus is debatable at MAP 88", fix: "Bolus to response", severity: "warn" }] }, regenerated: false, second: null };
+  await DW.grade(readyEnc(c), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  var prompt = calls[0].body.messages[0].content;
+  assert(/CASE REVIEWER NOTES/.test(prompt) && /30 mL\/kg bolus is debatable/.test(prompt) && /Bolus to response/.test(prompt));
+  reset();
+  await DW.grade(readyEnc(makeCase({ seed: 306, conditions: cond() })), { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  assert(/CASE REVIEWER NOTES: none\./.test(calls[0].body.messages[0].content));
+});
+
 test("a disposition plan runs as his final orders before grading; the graded encounter comes back", async function () {
   reset();
   var enc = readyEnc(makeCase({ seed: 301, conditions: cond() }));

@@ -1401,6 +1401,15 @@
       : Promise.resolve(enc);
     return ready.then(function (e2) { return gradeNow(e2, final, plan); });
   }
+  // A second physician's reservations about this case's answer key, when a review ran: the grader
+  // should not hold him to a key line the reviewer thought debatable.
+  function reviewNotes(c) {
+    var r = c.review && (c.review.second || c.review.first);
+    var issues = r && arr(r.issues).filter(function (i) { return i && i.problem; });
+    if (!issues || !issues.length) return "CASE REVIEWER NOTES: none.";
+    return "CASE REVIEWER NOTES (a second physician's reservations about this answer key; do not penalize him for following them, and do not treat a key line they question as settled): " +
+      JSON.stringify(issues.map(function (i) { return (i.field ? i.field + ": " : "") + i.problem + (i.fix ? " → " + i.fix : ""); }));
+  }
   function gradeNow(enc, final, plan) {
     var c = enc.case;
     var crit = computeCritical(enc);
@@ -1421,6 +1430,7 @@
       "TRANSCRIPT:\n" + transcriptText(enc),
       "FINAL ANSWERS: " + JSON.stringify(answers),
       "HIS RULES FROM PAST DEBRIEFS (newest first): " + JSON.stringify(stats().rules.map(function (r) { return r.rule; })),
+      reviewNotes(c),
       "COMPUTED (fixed, do not change): " + JSON.stringify(crit.computed),
       "TO_JUDGE (return only these in criticalActions): " + JSON.stringify(crit.toJudge),
       "Grade now. JSON only."
