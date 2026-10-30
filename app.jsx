@@ -714,7 +714,7 @@ const eventText=(ev,vitals)=>{
 };
 
 const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
-  const [ddx,setDdx]=useState(["","",""]);const [conf,setConf]=useState(60);const [dispo,setDispo]=useState(null);const [focus,setFocus]=useState(null);
+  const [ddx,setDdx]=useState(["","",""]);const [conf,setConf]=useState(60);const [dispo,setDispo]=useState(null);const [focus,setFocus]=useState(null);const [plan,setPlan]=useState("");
   const [tc,setTc]=useState({airway:false,access:false,blood:false,pressors:false,sedation:false,receivingCall:false});
   const names=useMemo(()=>{try{return[...new Set((CASES_().CATALOG||[]).map(x=>x.dx).filter(Boolean))].sort()}catch{return[]}},[]);
   // iOS Safari hides <datalist> suggestions; show up to five matches as tappable chips under the focused field.
@@ -723,7 +723,7 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
   const isT=/transfer/i.test(dispo||"");
   const ok=ddx[0].trim()&&dispo&&!busy;
   const TC=[["airway","Airway secured or deliberately not needed"],["access","Two lines / IO"],["blood","Blood hanging or ready"],["pressors","Pressors titrated and stable"],["sedation","Sedation and analgesia running"],["receivingCall","Receiving facility accepted"]];
-  const submit=()=>onSubmit({ddx:ddx.map(s=>s.trim()).filter(Boolean),confidence:conf,finalDispo:dispo,transferChecklist:isT?tc:null});
+  const submit=()=>onSubmit({ddx:ddx.map(s=>s.trim()).filter(Boolean),confidence:conf,finalDispo:dispo,transferChecklist:isT?tc:null,plan:plan.trim()});
   return(<Sheet title="Commit" onClose={busy?()=>{}:onClose} maxH="94dvh">
     <SectionTitle size={16} style={{marginBottom:8}}>Differential, most likely first</SectionTitle>
     {ddx.map((d,i)=><div key={i} style={{marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -740,6 +740,9 @@ const CommitSheet=({enc,onClose,onSubmit,busy,error})=>{
       <SectionTitle size={16} style={{marginBottom:4}}>Packaged for transport?</SectionTitle>
       {TC.map(([k,l])=><Toggle key={k} on={tc[k]} onChange={v=>setTc({...tc,[k]:v})} label={l}/>)}
     </div>}
+    <SectionTitle size={16} style={{margin:"14px 0 4px"}}>Plan at disposition <span style={{fontWeight:400,color:C.dim}}>· optional</span></SectionTitle>
+    <div style={{fontSize:13,color:C.dim,lineHeight:1.5,marginBottom:6}}>Prescriptions, last orders, return precautions. These run as your final orders before grading.</div>
+    <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} aria-label="Plan at disposition" placeholder="e.g. doxycycline 100 mg twice daily for 10 days; return for fever or spreading rash" style={{width:"100%",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:4,padding:10,fontSize:16,color:C.text,outline:"none",resize:"vertical",lineHeight:1.4}}/>
     <ErrorBox error={error} onRetry={ok?submit:null} style={{marginTop:12}}/>
     <div style={{position:"sticky",bottom:-20,margin:"14px -18px -20px",padding:"10px 18px 20px",background:C.bg2,borderTop:`1px solid ${C.border}`}}>
     <Btn kind="lock" disabled={!ok} onClick={submit} style={{width:"100%",minHeight:52}}>{busy?<span className="pulse-slow">Attending reviewing…</span>:"Submit for grading"}</Btn></div>
@@ -1101,10 +1104,11 @@ const App=()=>{
   };
   const lock=gut=>{const e=DW_().lockGut(enc,gut);setSaveWarn(!!e.saveFailed);const{saveFailed,...clean}=e;setEnc(clean);setView("workup")};
   const resume=a=>{setSaveWarn(false);setEnc(a);setView(a.gut?"workup":"doorway")};
-  const graded=async(e,grade,answers)=>{
-    if(seedOf(e).caseId!==curCase.current)return; // a grade for a case he already left
+  const graded=async(e0,grade,answers)=>{
+    if(seedOf(e0).caseId!==curCase.current)return; // a grade for a case he already left
+    const e=(grade&&grade.encAfter&&seedOf(grade.encAfter).caseId===seedOf(e0).caseId)?grade.encAfter:e0; // includes the disposition-plan turn
     const gut=e.gut||{};
-    const extras={ddx:answers.ddx,confidence:answers.confidence,finalDispo:answers.finalDispo,transferChecklist:answers.transferChecklist,gutTimedOut:!!(gut.timedOut||gut.gutTimedOut)};
+    const extras={ddx:answers.ddx,confidence:answers.confidence,finalDispo:answers.finalDispo,transferChecklist:answers.transferChecklist,plan:answers.plan,gutTimedOut:!!(gut.timedOut||gut.gutTimedOut)};
     try{await Promise.resolve(DW_().recordResult(e,grade,extras))}catch(err){console.error("recordResult",err)}
     startPrefetch(getSettings().mode==="drill"?"drill":"shift");
     setDebrief({enc:e,grade,answers});setView("debrief");haptic([40,60,120]);

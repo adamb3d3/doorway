@@ -36,7 +36,7 @@
     Labs: ["CBC+BMP", "Troponin", "Lactate", "D-dimer", "VBG/ABG", "Coags/INR", "UA", "Blood cultures", "LFTs", "Lipase", "Tox screen", "Beta-HCG", "Type & screen"],
     Imaging: ["ECG", "CXR", "CT head", "CT chest/PE", "CT abd/pelvis", "Bedside FAST", "POCUS cardiac", "POCUS lung", "CT angio", "X-ray extremity"],
     Procedures: ["RSI/intubate", "Chest tube", "Needle decompression", "IO access", "CVAD/central line", "Arterial line", "Foley", "LP", "Cricothyrotomy", "Pericardiocentesis", "I&D", "Pelvic binder", "Splint/reduction"],
-    Stabilize: ["IV access + fluids", "Blood transfusion", "Activate MTP", "TXA now", "Start pressors", "Norepinephrine", "Epinephrine", "Aspirin 324mg", "TPA/lytics", "Cardioversion", "Transcutaneous pacing", "Magnesium sulfate",
+    Stabilize: ["IV access + fluids", "IV access only", "Blood transfusion", "Activate MTP", "TXA now", "Start pressors", "Norepinephrine", "Epinephrine", "Aspirin 324mg", "TPA/lytics", "Cardioversion", "Transcutaneous pacing", "Magnesium sulfate",
       "Broad-spectrum antibiotics", "BiPAP", "Nitroglycerin", "Calcium", "Insulin infusion", "Bicarbonate", "Albuterol neb", "D50/glucose", "Naloxone", "Reversal (PCC/vit K)", "Sedation/analgesia",
       "Adenosine", "Benzodiazepine", "Oxytocin", "Hypertonic saline"],
     Transfer: ["Call receiving facility", "Request flight", "Request ground ALS", "Send records/imaging", "Talk to family"],
@@ -464,7 +464,8 @@
     "- If his words clearly order an intervention from the INTERVENTIONS list, put its id in interventionsApplied. Only ids from that list. Do not apply anything he did not order.",
     "- timeCostMin: realistic minutes the requested items take at this facility (history ~" + T.history + ", exam ~" + T.exam + ", bedside test ~" + T.bedside + ", point-of-care lab ~" + T.labsPoc + ", main lab panel ~" + T.labsSend + ", X-ray ~" + T.xray + ", CT ~" + T.ct + ", procedure ~" + T.procedure + ", phone call ~" + T.callReceiving + "). For several items, the longest one (they run in parallel).",
     "- obs: a short string when something visibly changes in the patient, else \"\". physicality: an object of avatar changes, e.g. {\"diaphoresis\":2,\"distressLevel\":3}, or {} when nothing changed.",
-    "- Never reveal or hint the diagnosis beyond what the findings themselves show. Never coach him.",
+    "- Report only what is observable at the current sim minute. Never narrate what happens later (\"twenty minutes later there are crackles\"); the clock and the vitals model handle the future.",
+    "- Never reveal or hint the diagnosis beyond what the findings themselves show. Never coach him: the nurse, the lab and the receiving physician state facts, ask the questions real colleagues ask, and relay the receiving center's requirements, but they do not explain pathophysiology, suggest a diagnosis, or recommend a treatment he has not asked about.",
     "- Maximum 6 responses.",
     "",
     "Return exactly:",
@@ -1143,6 +1144,11 @@
         return;
       }
       if (g === "Transfer") {
+        // A transfer chip also counts as the intervention the case writer tied to it (the early call,
+        // the transport request), so the critical-action clock can see it.
+        for (var ti = 0; ti < ivs.length; ti++) {
+          if (ivs[ti].chips.indexOf(l) >= 0 && countApplied(ivs[ti].id) < ivs[ti].maxApplications) { applied.push({ id: ivs[ti].id, atMin: t0, source: "chip" }); break; }
+        }
         if (l === "Request flight") {
           if (cond.flight !== "available") {
             eventEntry("transfer", cond.flight === "weather" ? "Flight declined: weather" : "Flight declined: aircraft in use", t0);
@@ -1340,16 +1346,26 @@
     return out.join("\n");
   }
 
+  // The disposition plan (prescriptions, instructions, last orders) runs as his final orders before
+  // grading, so the interventions it names can count. One model call; the clock moves by what it takes.
   function grade(enc, final) {
     final = final || {};
     if (!enc || !enc.case) return Promise.reject(new Error("No active patient."));
+    var plan = str(final.plan, "");
+    var ready = plan
+      ? act(enc, { text: "At disposition, before the patient leaves or is discharged: " + plan }).then(function (r) { return r.enc; }, function () { return enc; })
+      : Promise.resolve(enc);
+    return ready.then(function (e2) { return gradeNow(e2, final, plan); });
+  }
+  function gradeNow(enc, final, plan) {
     var c = enc.case;
     var crit = computeCritical(enc);
     var answers = {
       ddx: arr(final.ddx).map(function (s) { return String(s || "").trim(); }).filter(Boolean).slice(0, 3),
       confidence: clamp(Math.round(num(final.confidence, 50)), 0, 100),
       finalDispo: final.finalDispo || null,
-      transferChecklist: final.transferChecklist || null
+      transferChecklist: final.transferChecklist || null,
+      plan: plan
     };
     var user = [
       "ANSWER KEY: " + JSON.stringify(c.answerKey),
@@ -1369,7 +1385,11 @@
     return callJSON("grade", sysBlocks([GRADE_SYSTEM]), user, CONFIG.maxTokens.grade, function (g) {
       if (!g || typeof g !== "object" || !isFinite(num(g.score, NaN))) throw invalid("grade missing score");
       return g;
-    }, "grade", SCHEMAS.grade).then(function (g) { return finalizeGrade(g, enc, crit, answers); });
+    }, "grade", SCHEMAS.grade).then(function (g) {
+      var out = finalizeGrade(g, enc, crit, answers);
+      out.encAfter = enc; // the encounter as graded (includes the disposition plan turn)
+      return out;
+    });
   }
 
   // ── DDx matching (engine decides rank; the model only breaks ties) ────────
@@ -1676,7 +1696,9 @@
     var caseId = (c.seed && c.seed.caseId) || c.id;
     if (!caseId) return false;
     var list = readResults().filter(function (r) { return r.caseId !== caseId; });
-    list.push({ caseId: caseId, savedAt: now(), enc: slimEnc(enc), grade: g, answers: answers || {} });
+    var gs = assign({}, g);
+    delete gs.encAfter;
+    list.push({ caseId: caseId, savedAt: now(), enc: slimEnc(enc), grade: gs, answers: answers || {} });
     return writeResults(list);
   }
   function historyEntry(caseId) {

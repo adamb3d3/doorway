@@ -515,6 +515,33 @@ test("critical actions done/late/missed computed in code; grader cannot override
   assert(/ANSWER KEY/.test(prompt) && /LOCKED DOORWAY GUT/.test(prompt) && /FINAL ANSWERS/.test(prompt) && /\[T\+95\]/.test(prompt) && /vitals: HR/.test(prompt));
 });
 
+test("transfer chips count as the intervention the case tied to them", async function () {
+  reset();
+  var ivs = [{ id: "transfer", label: "Early call to the tertiary center", chips: ["Call receiving facility", "Request ground ALS"], effect: {}, onsetMin: 0, critical: true, windowMin: 30 }];
+  var c = vcase(ivs); c.seed.conditions = cond(); c.answerKey.criticalActions = [{ id: "transfer", action: "Early transfer call", windowMin: 30 }];
+  var r = await DW.act(readyEnc(c), { chips: [{ group: "Transfer", label: "Call receiving facility" }] });
+  assert.deepStrictEqual(r.enc.applied.map(function (a) { return a.id; }), ["transfer"]);
+  assert.strictEqual(DW._.computeCritical(r.enc).computed[0].status, "done");
+  var r2 = await DW.act(r.enc, { chips: [{ group: "Transfer", label: "Request ground ALS" }] });
+  assert.strictEqual(r2.enc.applied.length, 1, "applied once");
+  assert.strictEqual(calls.length, 0);
+});
+
+test("a disposition plan runs as his final orders before grading; the graded encounter comes back", async function () {
+  reset();
+  var enc = readyEnc(makeCase({ seed: 301, conditions: cond() }));
+  var g = await DW.grade(enc, { ddx: ["a"], confidence: 50, finalDispo: "Discharge w/ f/u", plan: "Doxycycline 100 mg twice daily for 10 days, return if fever or spreading rash." });
+  assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["turn", "grade"]);
+  assert(/At disposition/.test(calls[0].body.messages[0].content) && /Doxycycline/.test(calls[0].body.messages[0].content));
+  assert(g.encAfter && g.encAfter.log.some(function (e) { return e.k === "doc" && /Doxycycline/.test(e.t); }), "plan is on the transcript");
+  assert(/Doxycycline/.test(calls[1].body.messages[0].content), "grader sees the plan");
+  var st = DW.recordResult(g.encAfter, g, {});
+  assert.strictEqual(JSON.stringify(DW.getResult(st.history[0].caseId).grade).indexOf("encAfter"), -1, "encAfter is not stored");
+  reset();
+  await DW.grade(enc, { ddx: ["a"], confidence: 50, finalDispo: "Transfer" });
+  assert.deepStrictEqual(calls.map(function (x) { return x.kind; }), ["grade"], "no plan, no extra call");
+});
+
 test("turn prompt never contains the answer key", async function () {
   reset();
   var c = makeCase({ seed: 22, conditions: cond() });

@@ -47,7 +47,7 @@ console.log("models:", JSON.stringify(CFG.models), "structured:", CFG.structured
 const DEREK_SYSTEM = [
   "You are Derek, a careful mid-career emergency physician working alone tonight at a 25-bed critical access hospital: no ICU, no surgeon, no cath lab, no neurosurgery; POCUS and point-of-care labs in house; CT sometimes down at night; the helicopter sometimes grounded; the nearest tertiary center 60–90 minutes by ground. You are playing a training simulation on your phone. You do NOT know the diagnosis. Work it out the way you would on shift.",
   "",
-  "How you work: recognize early; stabilize what is killing them; package safely; call the receiving facility EARLY when transfer looks likely, in parallel with the workup rather than after it. Order what changes the decision, not everything. Reassess the vitals after each step. Use the ORDER MENU first (exact labels, they are instant); use free text for things not on it or to ask the patient something specific. One to four orders per turn. Commit when you have enough to decide: three differentials most-likely first, your confidence in #1, the disposition correct for THIS facility, and the transfer checklist if you are transferring. Commit by the turn limit at the latest.",
+  "How you work: recognize early; stabilize what is killing them; package safely; call the receiving facility EARLY when transfer looks likely, in parallel with the workup rather than after it. Order what changes the decision, not everything. Reassess the vitals after each step; when you want to see where the patient is going, use the Time chips (Recheck vitals, Observe) rather than a send-out lab. Use the ORDER MENU first (exact labels, they are instant); use free text for things not on it or to ask the patient something specific. One to four orders per turn. Commit when you have enough to decide: three differentials most-likely first, your confidence in #1, the disposition correct for THIS facility, the transfer checklist if you are transferring, and a plan: every treatment you would give or prescribe, including at discharge (antibiotics, splints, return precautions), goes in the plan or in an earlier order, because nothing else counts. Commit by the turn limit at the latest.",
   "",
   "Return ONLY JSON matching the requested shape.",
 ].join("\n");
@@ -66,6 +66,7 @@ const TURN_SCHEMA = S_obj({
   confidence: S("integer"),
   finalDispo: S_enum(DW.DISPOS),
   transferChecklist: S_obj({ airway: S("boolean"), access: S("boolean"), blood: S("boolean"), pressors: S("boolean"), sedation: S("boolean"), receivingCall: S("boolean") }),
+  plan: S("string"),
 });
 
 function fmtV(v) { return v ? `HR ${v.HR} BP ${v.SBP}/${v.DBP} RR ${v.RR} SpO2 ${v.SpO2}% T ${v.Temp} GCS ${v.GCS}` : "—"; }
@@ -116,28 +117,42 @@ function stubDerek(enc, turn) {
     { chips: [{ group: "Stabilize", label: "IV access + fluids" }], text: "How are you feeling now?" },
     { chips: [{ group: "Transfer", label: "Call receiving facility" }, { group: "Transfer", label: "Request ground ALS" }], text: "" },
   ];
-  if (turn <= plan.length) return { note: "scripted", commit: false, ddx: [], confidence: 0, finalDispo: "Transfer", transferChecklist: tc(false), ...plan[turn - 1] };
-  return { note: "commit", chips: [], text: "", commit: true, ddx: [enc.case.answerKey.trueDx, "Pneumonia", "PE"], confidence: 70, finalDispo: "Emergent transfer", transferChecklist: tc(true) };
+  if (turn <= plan.length) return { note: "scripted", commit: false, ddx: [], confidence: 0, finalDispo: "Transfer", transferChecklist: tc(false), plan: "", ...plan[turn - 1] };
+  return { note: "commit", chips: [], text: "", commit: true, ddx: [enc.case.answerKey.trueDx, "Pneumonia", "PE"], confidence: 70, finalDispo: "Emergent transfer", transferChecklist: tc(true), plan: "Broad-spectrum antibiotics before the crew arrives." };
 }
 function tc(v) { return { airway: v, access: v, blood: v, pressors: v, sedation: v, receivingCall: v }; }
 
 // ── Leak check ──────────────────────────────────────────────────────────────
+// A patient may say "pain" or "headache"; the leak is the diagnosis word itself (eclampsia, sepsis,
+// dissection). Words come from the catalog name and the answer key; symptoms and everyday words are dropped.
 const GENERIC = new Set(["acute", "syndrome", "with", "needing", "presenting", "decision", "adult", "pediatric", "elderly", "patient", "severe", "mild", "chronic",
   "stable", "unstable", "hemodynamically", "primary", "secondary", "uncomplicated", "outpatient", "appropriate", "nursing", "home", "new", "onset", "missed",
-  "session", "no", "bed", "after", "without", "transfer", "center", "crisis", "care", "level", "simple", "major", "minor", "infant", "child", "toddler", "newborn"]);
+  "session", "no", "bed", "after", "without", "transfer", "center", "crisis", "care", "level", "simple", "major", "minor", "infant", "child", "toddler", "newborn",
+  "pain", "ache", "headache", "week", "weeks", "day", "days", "hour", "hours", "like", "about", "fever", "cough", "rash", "bleed", "bleeding", "swelling", "swollen",
+  "nausea", "vomiting", "weak", "weakness", "breath", "chest", "back", "belly", "abdominal", "dizzy", "dizziness", "tired", "sick", "sudden", "worse", "better",
+  "spot", "spots", "blurry", "pressure", "high", "low", "blood", "heart", "head", "leg", "arm", "foot", "hand", "injury", "fall", "delivery", "features", "range",
+  "visual", "disturbance", "epigastric", "generalized", "tonic", "clonic", "seizure", "gestation", "progressing", "early", "localized", "expanding", "target",
+  "disease", "failure", "shock", "attack", "episode", "accident", "wound", "burn", "bite", "sting", "reaction", "dose", "doses", "pill", "pills", "medication"]);
+const SHORT_DX = ["sepsis", "septic", "stroke", "stemi", "nstemi", "dka", "sah", "ich", "aaa", "pe", "copd", "chf", "scape", "hellp", "tia", "mi"];
 function dxWords(c) {
   const names = [c.answerKey.trueDx];
   const entry = c.seed && CASES.byId(c.seed.dxId);
   if (entry) names.push(entry.dx);
   const words = new Set();
-  names.forEach((n) => DW._.dxTokens(n).forEach((w) => { if (!GENERIC.has(w) && w.length > 3) words.add(w); }));
+  names.forEach((n) => DW._.dxTokens(n).forEach((w) => {
+    if (GENERIC.has(w)) return;
+    if (w.length >= 7 || SHORT_DX.includes(w)) words.add(w);
+  }));
   return { names: names.map((n) => n.toLowerCase()), words: Array.from(words) };
 }
 function leakScan(text, dx) {
   const t = String(text || "").toLowerCase();
-  const hitsName = dx.names.filter((n) => n && t.indexOf(n) >= 0);
-  const hitWords = dx.words.filter((w) => new RegExp("\\b" + w.replace(/[^a-z0-9]/g, "") + "\\w*", "i").test(t));
-  if (hitsName.length || hitWords.length >= 2) return { name: hitsName[0] || null, words: hitWords };
+  const hitsName = dx.names.filter((n) => n && n.length < 60 && t.indexOf(n) >= 0);
+  const hitWords = dx.words.filter((w) => {
+    const esc = w.replace(/[^a-z0-9]/g, "");
+    return new RegExp(w.length >= 7 ? "\\b" + esc + "\\w*" : "\\b" + esc + "\\b", "i").test(t);
+  });
+  if (hitsName.length || hitWords.length >= 1) return { name: hitsName[0] || null, words: hitWords };
   return null;
 }
 
@@ -209,12 +224,12 @@ async function runCase(i) {
         unknownChips.length ? "IGNORED (not on the menu): " + unknownChips.join(", ") + ". Use exact labels or free text." : "",
         "\nLOG:\n" + logText(enc),
         "\nORDER MENU (exact labels):\n" + menuText(),
-        must ? "\nCommit now: JSON with commit:true, ddx (3, most likely first), confidence 0-100, finalDispo, transferChecklist."
-          : "\nYour move. JSON: {\"note\":\"one line of reasoning\",\"chips\":[{\"group\":\"\",\"label\":\"\"}],\"text\":\"free text or empty\",\"commit\":false,\"ddx\":[],\"confidence\":0,\"finalDispo\":\"your current leaning\",\"transferChecklist\":{...all false}} — or commit:true with ddx (3, most likely first), confidence 0-100, finalDispo for THIS facility, and transferChecklist.",
+        must ? "\nCommit now: JSON with commit:true, ddx (3, most likely first), confidence 0-100, finalDispo, transferChecklist, plan."
+          : "\nYour move. JSON: {\"note\":\"one line of reasoning\",\"chips\":[{\"group\":\"\",\"label\":\"\"}],\"text\":\"free text or empty\",\"commit\":false,\"ddx\":[],\"confidence\":0,\"finalDispo\":\"your current leaning\",\"transferChecklist\":{...all false},\"plan\":\"\"} — or commit:true with ddx (3, most likely first), confidence 0-100, finalDispo for THIS facility, transferChecklist, and plan (every treatment or prescription you would give at disposition).",
       ].filter(Boolean).join("\n");
       const d = STUB ? stubDerek(enc, t) : await derekCall("turn", user, TURN_SCHEMA, derekLog);
       if (d.commit || must) {
-        answers = { ddx: (d.ddx || []).map(String).filter(Boolean).slice(0, 3), confidence: Number(d.confidence) || 50, finalDispo: DW.DISPOS.includes(d.finalDispo) ? d.finalDispo : "Transfer", transferChecklist: d.transferChecklist || null };
+        answers = { ddx: (d.ddx || []).map(String).filter(Boolean).slice(0, 3), confidence: Number(d.confidence) || 50, finalDispo: DW.DISPOS.includes(d.finalDispo) ? d.finalDispo : "Transfer", transferChecklist: d.transferChecklist || null, plan: String(d.plan || "").trim() };
         if (!answers.ddx.length) answers.ddx = ["Unsure"];
         break;
       }
@@ -244,6 +259,8 @@ async function runCase(i) {
     const tg = Date.now();
     const grade = await DW.grade(enc, answers);
     summary.gradeMs = Date.now() - tg;
+    if (grade.encAfter) { enc = grade.encAfter; writeJSON(path.join(dir, "enc.json"), enc); }
+    delete grade.encAfter;
     writeJSON(path.join(dir, "grade.json"), grade);
     fs.writeFileSync(path.join(dir, "transcript.txt"), [doorwayText(enc), "", "GUT: " + JSON.stringify(enc.gut) + " — " + summary.gutWhy, "", DW._.transcriptText(enc), "", "ANSWERS: " + JSON.stringify(answers), "", "TRUTH: " + JSON.stringify(c.answerKey), "", "GRADE: " + JSON.stringify(grade, null, 1)].join("\n"));
     DW.recordResult(enc, grade, {});
