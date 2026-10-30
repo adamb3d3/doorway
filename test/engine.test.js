@@ -40,6 +40,7 @@ require(path.join(__dirname, "..", "engine.js"));
 require(path.join(__dirname, "fixtures.js"));
 var C = global.DW_CASES, DW = global.DW, FX = global.DW_FIXTURES;
 DW._.CONFIG.backoffMs = 0;
+DW._.CONFIG.review = false; // on by default in the app; tests that exercise it turn it on
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 var tests = [];
@@ -695,8 +696,9 @@ test("newCase: two calls (case, results) with right headers, tokens and model", 
   assert.strictEqual(calls[0].body.max_tokens, 16000);
   assert.strictEqual(calls[1].body.max_tokens, 16000);
   assert.strictEqual(calls[0].url, "/api/claude");
-  assert.strictEqual(calls[0].body.model, "claude-sonnet-5-5");
-  assert.deepStrictEqual(calls[0].body.output_config, { effort: "high" }, "effort per kind; no schema unless structured");
+  assert.strictEqual(calls[0].body.model, "claude-opus-5-5", "Opus writes the case");
+  assert.strictEqual(calls[1].body.model, "claude-sonnet-5-5", "Sonnet writes the results sheet");
+  assert.deepStrictEqual(calls[0].body.output_config, { effort: "medium" }, "effort per kind; no schema unless structured");
   assert.deepStrictEqual(calls[1].body.output_config, { effort: "medium" });
   assert.deepStrictEqual(lastSysBlock(calls[0].body).cache_control, { type: "ephemeral" }, "static system prompt is cache-marked");
   assert(/time 0/i.test(sysText(calls[0].body)) && /CONDITIONS FOR THIS CASE/.test(calls[0].body.messages[0].content));
@@ -967,6 +969,7 @@ test("refusal: readable error, flagged, not retried", async function () {
 
 test("per-kind model and effort go in the body; thinking blocks in the reply are ignored", async function () {
   reset();
+  var prevModel = DW._.CONFIG.models.grade, prevEffort = DW._.CONFIG.effort.grade;
   DW._.CONFIG.models.grade = "claude-opus-5-5";
   DW._.CONFIG.effort.grade = "xhigh";
   try {
@@ -976,7 +979,7 @@ test("per-kind model and effort go in the body; thinking blocks in the reply are
     assert.strictEqual(calls[0].body.model, "claude-opus-5-5");
     assert.strictEqual(calls[0].body.max_tokens, 8000);
     assert.deepStrictEqual(calls[0].body.output_config, { effort: "xhigh" });
-  } finally { DW._.CONFIG.models.grade = DW.MODEL; DW._.CONFIG.effort.grade = "high"; }
+  } finally { DW._.CONFIG.models.grade = prevModel; DW._.CONFIG.effort.grade = prevEffort; }
 });
 
 test("structured outputs: schema sent as output_config.format for every kind when enabled", async function () {
@@ -1086,7 +1089,7 @@ test("onCall hook sees every exchange with timing, usage and stop reason", async
     overrides.push(function () { return { status: 529, body: { error: "overloaded" } }; });
     await DW.newCase({});
     assert.deepStrictEqual(seen.map(function (s) { return s.kind + ":" + s.status + ":" + s.attempt; }), ["case:529:0", "case:200:1", "results:200:0"]);
-    assert(typeof seen[0].ms === "number" && seen[0].error && seen[1].request.model === "claude-sonnet-5-5" && seen[1].response.content);
+    assert(typeof seen[0].ms === "number" && seen[0].error && seen[1].request.model === "claude-opus-5-5" && seen[1].response.content);
     DW._.CONFIG.onCall = function () { throw new Error("hook bug"); };
     var c = await DW.newCase({});
     assert(c.persona, "a throwing hook never breaks a call");

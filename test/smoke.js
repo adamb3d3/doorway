@@ -204,7 +204,8 @@ async function checkTimeline(page, simMin, where) {
       let body = null;
       try { body = req.postDataJSON(); } catch (e) { /* ignore */ }
       apiCalls.push(kind);
-      if (!body || body.model !== "claude-sonnet-5-5") errors.push(`api: wrong model "${body && body.model}" for kind ${kind}`);
+      const ALLOWED = ["claude-sonnet-5-5", "claude-opus-5-5"];
+      if (!body || !ALLOWED.includes(body.model)) errors.push(`api: wrong model "${body && body.model}" for kind ${kind}`);
       try {
         const data = fakeResponse(kind, body);
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });

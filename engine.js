@@ -12,20 +12,23 @@
   var T = FACILITY.timesMin;
 
   var MODEL = "claude-sonnet-5-5";
+  var OPUS = "claude-opus-5-5";
   var FALLBACK = "Not performed/not available";
   var VITAL_KEYS = ["HR", "SBP", "DBP", "RR", "SpO2", "Temp", "GCS"];
   var CONFIG = {
     backoffMs: 1500,
     timeouts: { "case": 120000, results: 120000, review: 120000, turn: 60000, grade: 90000 },
     endpoint: "/api/claude",
-    // Per call kind. The proxy allows claude-sonnet-5-5 and claude-opus-5-5 and caps max_tokens by kind.
-    models: { "case": MODEL, results: MODEL, review: MODEL, turn: MODEL, grade: MODEL },
+    // Per call kind, from the live runs of 30 Oct 2026 (runs/): Opus writes the case (medium effort: 74 s
+    // against 102 s at high, same review profile), reviews it and grades; Sonnet plays the patient and
+    // writes the results sheet. The proxy allows both models and caps max_tokens by kind.
+    models: { "case": OPUS, results: MODEL, review: OPUS, turn: MODEL, grade: OPUS },
     // How hard the model thinks before answering. Thinking tokens count against max_tokens.
-    effort: { "case": "high", results: "medium", review: "high", turn: "medium", grade: "high" },
+    effort: { "case": "medium", results: "medium", review: "high", turn: "medium", grade: "high" },
     maxTokens: { "case": 16000, results: 16000, review: 8000, turn: 6000, grade: 8000 },
-    structured: false, // send a JSON schema with each call (output_config.format)
+    structured: false, // send a JSON schema with each call (output_config.format); never needed in 25 live cases
     cache: true,       // mark the static system blocks for prompt caching
-    review: false,     // clinical review of each generated case by a second call, regenerate once on a blocking issue
+    review: true,      // a second physician's pass over each generated case; regenerate once on a blocking issue
     onCall: null       // function(info) called after every API exchange; used by the live harness
   };
 
